@@ -1,0 +1,21 @@
+# Entorno virtual y temporales
+*env/
+__pycache__/
+.vscode/
+.ipynb_checkpoints/
+
+# Datos (De esto se encarga DVC)
+data/raw/*
+data/processed/*
+
+!*.dvc
+!.gitignore
+!.gitkeep
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Modelos y Experimentos (MLflow)
+models/
+mlruns/
+*.pkl
+*.joblib
