@@ -1,0 +1,9 @@
+stages:
+  limpieza_datos:
+    cmd: python src/data/make_dataset.py --input data/raw/cardio_train.csv 
+      --output data/processed/cardio_clean.csv
+    deps:
+    - data/raw/cardio_train.csv
+    - src/data/make_dataset.py
+    outs:
+    - data/processed/cardio_clean.csv
