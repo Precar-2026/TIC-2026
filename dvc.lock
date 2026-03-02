@@ -1,0 +1,19 @@
+schema: '2.0'
+stages:
+  limpieza_datos:
+    cmd: python src/data/make_dataset.py --input data/raw/cardio_train.csv 
+      --output data/processed/cardio_clean.csv
+    deps:
+    - path: data/raw/cardio_train.csv
+      hash: md5
+      md5: 71c46a70f7ba9e3e4736ae73ecd5bac9
+      size: 2941524
+    - path: src/data/make_dataset.py
+      hash: md5
+      md5: 9d6957573d5e0df400db84b3b576b58b
+      size: 10794
+    outs:
+    - path: data/processed/cardio_clean.csv
+      hash: md5
+      md5: eb1b5454714b9014d69e99561cfdf614
+      size: 3277238
