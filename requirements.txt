@@ -9,3 +9,4 @@ imbalanced-learn
 mlflow
 dvc
 jupyter
+optuna
