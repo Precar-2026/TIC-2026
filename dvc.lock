@@ -17,3 +17,26 @@ stages:
       hash: md5
       md5: eb1b5454714b9014d69e99561cfdf614
       size: 3277238
+  ingenieria_caracteristicas:
+    cmd: python src/features/build_features.py --input 
+      data/processed/cardio_clean.csv --output_dir data/processed/model_inputs 
+      --scaler_path models/scaler.joblib
+    deps:
+    - path: data/processed/cardio_clean.csv
+      hash: md5
+      md5: eb1b5454714b9014d69e99561cfdf614
+      size: 3277238
+    - path: src/features/build_features.py
+      hash: md5
+      md5: a5b6b5d9e90d1b5605579fb010c29fc0
+      size: 15514
+    outs:
+    - path: data/processed/model_inputs
+      hash: md5
+      md5: b32187421445376571f51556dbcfecd5.dir
+      size: 13751496
+      nfiles: 4
+    - path: models/scaler.joblib
+      hash: md5
+      md5: c69cf34e2cbe8dfbe2babab8c80cda9f
+      size: 1159

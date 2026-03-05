@@ -7,3 +7,13 @@ stages:
     - src/data/make_dataset.py
     outs:
     - data/processed/cardio_clean.csv
+  ingenieria_caracteristicas:
+    cmd: python src/features/build_features.py --input 
+      data/processed/cardio_clean.csv --output_dir data/processed/model_inputs 
+      --scaler_path models/scaler.joblib
+    deps:
+    - data/processed/cardio_clean.csv
+    - src/features/build_features.py
+    outs:
+    - data/processed/model_inputs
+    - models/scaler.joblib
