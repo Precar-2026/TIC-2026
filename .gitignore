@@ -17,5 +17,6 @@ data/processed/*
 # Modelos y Experimentos (MLflow)
 /models/
 mlruns/
+mlartifacts/
 *.pkl
 *.joblib
