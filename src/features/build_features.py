@@ -130,13 +130,13 @@ class FeatureEngineer:
     def filter_hypertensive_patients(self) -> None:
         """
         Filtra el dataset para incluir ÚNICAMENTE a pacientes hipertensos.
-        Criterio (OMS): Presión Sistólica >= 140 O Diastólica >= 90.
+        Criterio (OMS): Presión Sistólica >= 130 O Diastólica >= 80.
         """
         logger.info("Aplicando criterio de inclusión: Conservando SOLO pacientes hipertensos...")
         initial_len = len(self.df)
         
-        # Máscara de hipertensión (Puedes cambiar 140/90 por 130/80 si tu tesis usa la guía americana)
-        mask_hipertenso = (self.df['ap_hi'] >= 140) | (self.df['ap_lo'] >= 90)
+        # Máscara de hipertensión ()
+        mask_hipertenso = (self.df['ap_hi'] >= 130) | (self.df['ap_lo'] >= 80)
         
         self.df = self.df[mask_hipertenso].copy()
         
