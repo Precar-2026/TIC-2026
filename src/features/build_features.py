@@ -65,7 +65,8 @@ class FeatureEngineer:
     ]
     
     TARGET_VARIABLE = 'cardio'
-    TEST_SIZE = 0.2
+    VAL_SIZE = 0.09  # 9% validación
+    TEST_SIZE = 0.10  # 10% prueba
     RANDOM_STATE = 42
     
     def __init__(self, input_path: str, output_dir: str, scaler_path: str):
@@ -168,54 +169,70 @@ class FeatureEngineer:
             class_name = "Sin enfermedad" if class_val == 0 else "Con enfermedad"
             logger.info(f"  {class_name}: {count:,} ({prop:.2f}%)")
     
-    def split_data(self, X: pd.DataFrame, y: pd.Series) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
+    def split_data(self, X: pd.DataFrame, y: pd.Series) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, pd.Series]:
         """
-        Divide el dataset en conjuntos de entrenamiento y prueba.
+        Divide el dataset en conjuntos de entrenamiento, validación y prueba.
         
-        Utiliza estratificación para mantener la proporción de clases en ambos conjuntos.
+        Utiliza estratificación para mantener la proporción de clases en todos los conjuntos.
+        División: 81% entrenamiento, 9% validación, 10% prueba.
         
         Args:
             X: Variables predictoras
             y: Variable objetivo
             
         Returns:
-            Tupla con (X_train, X_test, y_train, y_test)
+            Tupla con (X_train, X_val, X_test, y_train, y_val, y_test)
         """
-        logger.info(f"Dividiendo dataset: {(1-self.TEST_SIZE)*100:.0f}% entrenamiento, {self.TEST_SIZE*100:.0f}% prueba")
-        
-        X_train, X_test, y_train, y_test = train_test_split(
+        # Primera división: separar test (10%) del resto (90%)
+        X_temp, X_test, y_temp, y_test = train_test_split(
             X, y,
             test_size=self.TEST_SIZE,
             random_state=self.RANDOM_STATE,
             stratify=y
         )
         
-        logger.info(f"Conjunto de entrenamiento: {X_train.shape[0]:,} registros")
-        logger.info(f"Conjunto de prueba: {X_test.shape[0]:,} registros")
+        # Segunda división: separar validación (9%) de entrenamiento (81%)
+        # val_size_adjusted: 9% del total es 10% del 90% restante
+        val_size_adjusted = self.VAL_SIZE / (1 - self.TEST_SIZE)
+        X_train, X_val, y_train, y_val = train_test_split(
+            X_temp, y_temp,
+            test_size=val_size_adjusted,
+            random_state=self.RANDOM_STATE,
+            stratify=y_temp
+        )
         
-        # Verificar balance en ambos conjuntos
+        total = len(X)
+        logger.info("División completada:")
+        logger.info(f"  - Entrenamiento: {X_train.shape[0]:,} registros ({X_train.shape[0]/total*100:.1f}%)")
+        logger.info(f"  - Validación: {X_val.shape[0]:,} registros ({X_val.shape[0]/total*100:.1f}%)")
+        logger.info(f"  - Prueba: {X_test.shape[0]:,} registros ({X_test.shape[0]/total*100:.1f}%)")
+        
+        # Verificar balance en todos los conjuntos
         self.check_class_balance(y_train, "Entrenamiento")
+        self.check_class_balance(y_val, "Validación")
         self.check_class_balance(y_test, "Prueba")
         
         # Almacenar estadísticas
         self.feature_stats['train_size'] = X_train.shape[0]
+        self.feature_stats['val_size'] = X_val.shape[0]
         self.feature_stats['test_size'] = X_test.shape[0]
         
-        return X_train, X_test, y_train, y_test
+        return X_train, X_val, X_test, y_train, y_val, y_test
     
-    def normalize_features(self, X_train: pd.DataFrame, X_test: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, StandardScaler]:
+    def normalize_features(self, X_train: pd.DataFrame, X_val: pd.DataFrame, X_test: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, StandardScaler]:
         """
         Normaliza las variables utilizando StandardScaler.
         
         Ajusta el escalador únicamente con el conjunto de entrenamiento y aplica
-        la misma transformación al conjunto de prueba para evitar data leakage.
+        la misma transformación a validación y prueba para evitar data leakage.
         
         Args:
             X_train: Variables predictoras de entrenamiento
+            X_val: Variables predictoras de validación
             X_test: Variables predictoras de prueba
             
         Returns:
-            Tupla con (X_train_scaled, X_test_scaled, scaler)
+            Tupla con (X_train_scaled, X_val_scaled, X_test_scaled, scaler)
         """
         logger.info("Normalizando variables (StandardScaler)...")
         
@@ -226,6 +243,13 @@ class FeatureEngineer:
             scaler.fit_transform(X_train),
             columns=X_train.columns,
             index=X_train.index
+        )
+        
+        # Transformar conjunto de validación (sin ajustar)
+        X_val_scaled = pd.DataFrame(
+            scaler.transform(X_val),
+            columns=X_val.columns,
+            index=X_val.index
         )
         
         # Transformar conjunto de prueba (sin ajustar)
@@ -247,7 +271,7 @@ class FeatureEngineer:
         self.feature_stats['scaling_mean'] = round(mean_train, 6)
         self.feature_stats['scaling_std'] = round(std_train, 6)
         
-        return X_train_scaled, X_test_scaled, scaler
+        return X_train_scaled, X_val_scaled, X_test_scaled, scaler
     
     def save_scaler(self, scaler: StandardScaler) -> None:
         """
@@ -260,28 +284,35 @@ class FeatureEngineer:
         joblib.dump(scaler, self.scaler_path)
         logger.info(f"Escalador guardado en: {self.scaler_path}")
     
-    def save_processed_data(self, X_train: pd.DataFrame, X_test: pd.DataFrame, 
-                           y_train: pd.Series, y_test: pd.Series) -> None:
+    def save_processed_data(self, X_train: pd.DataFrame, X_val: pd.DataFrame, 
+                           X_test: pd.DataFrame, y_train: pd.Series, 
+                           y_val: pd.Series, y_test: pd.Series) -> None:
         """
         Guarda los conjuntos de datos procesados.
         
         Args:
             X_train: Variables predictoras de entrenamiento (normalizadas)
+            X_val: Variables predictoras de validación (normalizadas)
             X_test: Variables predictoras de prueba (normalizadas)
             y_train: Variable objetivo de entrenamiento
+            y_val: Variable objetivo de validación
             y_test: Variable objetivo de prueba
         """
         os.makedirs(self.output_dir, exist_ok=True)
         
         X_train.to_csv(os.path.join(self.output_dir, 'X_train.csv'), index=False)
+        X_val.to_csv(os.path.join(self.output_dir, 'X_val.csv'), index=False)
         X_test.to_csv(os.path.join(self.output_dir, 'X_test.csv'), index=False)
         y_train.to_csv(os.path.join(self.output_dir, 'y_train.csv'), index=False, header=True)
+        y_val.to_csv(os.path.join(self.output_dir, 'y_val.csv'), index=False, header=True)
         y_test.to_csv(os.path.join(self.output_dir, 'y_test.csv'), index=False, header=True)
         
         logger.info(f"Datasets procesados guardados en: {self.output_dir}")
         logger.info(f"  - X_train.csv: {X_train.shape}")
+        logger.info(f"  - X_val.csv: {X_val.shape}")
         logger.info(f"  - X_test.csv: {X_test.shape}")
         logger.info(f"  - y_train.csv: {y_train.shape}")
+        logger.info(f"  - y_val.csv: {y_val.shape}")
         logger.info(f"  - y_test.csv: {y_test.shape}")
     
     def generate_summary_report(self) -> Dict:
@@ -291,15 +322,20 @@ class FeatureEngineer:
         Returns:
             Diccionario con estadísticas del proceso
         """
+        total = self.feature_stats['train_size'] + self.feature_stats['val_size'] + self.feature_stats['test_size']
+        
         logger.info("\n" + "="*70)
         logger.info("RESUMEN DE INGENIERÍA DE CARACTERÍSTICAS")
         logger.info(f"Variables seleccionadas: {self.feature_stats['n_features']}")
-        logger.info(f"Conjunto de entrenamiento: {self.feature_stats['train_size']:,} registros")
-        logger.info(f"Conjunto de prueba: {self.feature_stats['test_size']:,} registros")
+        logger.info(f"Total de registros: {total:,}")
+        logger.info(f"Conjunto de entrenamiento: {self.feature_stats['train_size']:,} registros (81%)")
+        logger.info(f"Conjunto de validación: {self.feature_stats['val_size']:,} registros (9%)")
+        logger.info(f"Conjunto de prueba: {self.feature_stats['test_size']:,} registros (10%)")
         logger.info(f"Normalización - Media: {self.feature_stats['scaling_mean']}")
         logger.info(f"Normalización - Desv. Estándar: {self.feature_stats['scaling_std']}")
         logger.info("-"*70)
         logger.info("DECISIONES CLAVE:")
+        logger.info("  - División estratificada: train 81%, validación 9%, test 10%")
         logger.info("  - No se aplicó SMOTE: dataset naturalmente balanceado")
         logger.info("  - Variables ordinales mantenidas sin one-hot encoding")
         logger.info("  - Variables redundantes eliminadas (age, weight, height)")
@@ -326,16 +362,21 @@ class FeatureEngineer:
         self.check_class_balance(y)
         
         # 5. Dividir datos
-        X_train, X_test, y_train, y_test = self.split_data(X, y)
+        X_train, X_val, X_test, y_train, y_val, y_test = self.split_data(X, y)
         
         # 6. Normalizar
-        X_train_scaled, X_test_scaled, scaler = self.normalize_features(X_train, X_test)
+        X_train_scaled, X_val_scaled, X_test_scaled, scaler = self.normalize_features(
+            X_train, X_val, X_test
+        )
         
         # 7. Guardar escalador
         self.save_scaler(scaler)
         
         # 8. Guardar datos procesados
-        self.save_processed_data(X_train_scaled, X_test_scaled, y_train, y_test)
+        self.save_processed_data(
+            X_train_scaled, X_val_scaled, X_test_scaled, 
+            y_train, y_val, y_test
+        )
         
         # 9. Generar reporte
         self.generate_summary_report()
