@@ -18,5 +18,6 @@ data/processed/*
 /models/
 mlruns/
 mlartifacts/
+mlflow.db
 *.pkl
 *.joblib
