@@ -126,6 +126,28 @@ class FeatureEngineer:
             raise ValueError(f"Variables faltantes en el dataset: {missing_vars}")
         
         logger.info("Validación de calidad completada")
+
+    def filter_hypertensive_patients(self) -> None:
+        """
+        Filtra el dataset para incluir ÚNICAMENTE a pacientes hipertensos.
+        Criterio (OMS): Presión Sistólica >= 140 O Diastólica >= 90.
+        """
+        logger.info("Aplicando criterio de inclusión: Conservando SOLO pacientes hipertensos...")
+        initial_len = len(self.df)
+        
+        # Máscara de hipertensión (Puedes cambiar 140/90 por 130/80 si tu tesis usa la guía americana)
+        mask_hipertenso = (self.df['ap_hi'] >= 140) | (self.df['ap_lo'] >= 90)
+        
+        self.df = self.df[mask_hipertenso].copy()
+        
+        final_len = len(self.df)
+        eliminados = initial_len - final_len
+        
+        logger.info(f"Filtro aplicado. Se descartaron {eliminados:,} pacientes con presión normal.")
+        logger.info(f"Pacientes HIPERTENSOS restantes para el estudio: {final_len:,}")
+        
+        # Almacenamos el dato para el reporte final
+        self.feature_stats['pacientes_hipertensos'] = final_len
     
     def select_features(self) -> Tuple[pd.DataFrame, pd.Series]:
         """
@@ -354,31 +376,34 @@ class FeatureEngineer:
         
         # 2. Validar calidad
         self.validate_data_quality()
+
+        # 3. Filtrar pacientes hipertensos
+        self.filter_hypertensive_patients()
         
-        # 3. Seleccionar variables
+        # 4. Seleccionar variables
         X, y = self.select_features()
         
-        # 4. Verificar balance de clases
+        # 6. Verificar balance de clases
         self.check_class_balance(y)
         
-        # 5. Dividir datos
+        # 7. Dividir datos
         X_train, X_val, X_test, y_train, y_val, y_test = self.split_data(X, y)
         
-        # 6. Normalizar
+        # 8. Normalizar
         X_train_scaled, X_val_scaled, X_test_scaled, scaler = self.normalize_features(
             X_train, X_val, X_test
         )
         
-        # 7. Guardar escalador
+        # 9. Guardar escalador
         self.save_scaler(scaler)
         
-        # 8. Guardar datos procesados
+        # 10. Guardar datos procesados
         self.save_processed_data(
             X_train_scaled, X_val_scaled, X_test_scaled, 
             y_train, y_val, y_test
         )
         
-        # 9. Generar reporte
+        # 11. Generar reporte
         self.generate_summary_report()
         
         logger.info("Pipeline de ingeniería de características completado exitosamente")
