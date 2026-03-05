@@ -68,10 +68,10 @@ logger = logging.getLogger(__name__)
 
 # Configuración de MLflow
 MLFLOW_TRACKING_URI = "http://127.0.0.1:5000"
-EXPERIMENT_NAME = "Tesis_Cardio_Prediccion"
+# EXPERIMENT_NAME = "Tesis_Cardio_Prediccion"
 
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-mlflow.set_experiment(EXPERIMENT_NAME)
+# mlflow.set_experiment(EXPERIMENT_NAME)
 
 
 class ModelTrainer:
@@ -383,6 +383,11 @@ class ModelTrainer:
         """
         logger.info("Registrando experimento en MLflow...")
         
+        from datetime import datetime
+        actual_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        experiment_name = f"{self.model_name}_Optimized_{actual_time}"
+        mlflow.set_experiment(experiment_name)
+
         with mlflow.start_run(run_name=f"{self.model_name}_Optimized"):
             # Registrar parámetros
             mlflow.log_param("model_type", self.model_name)
