@@ -252,7 +252,7 @@ class ModelTrainer:
             trial: Objeto trial de Optuna
             
         Returns:
-            Score promedio de validación cruzada (ROC AUC)
+            Score promedio de validación cruzada (F1-Score)
         """
         # Obtener hiperparámetros sugeridos
         params = self.define_search_space(trial)
@@ -263,10 +263,10 @@ class ModelTrainer:
         # Validación cruzada estratificada
         cv = StratifiedKFold(n_splits=self.CV_FOLDS, shuffle=True, random_state=self.RANDOM_STATE)
         
-        # Usar ROC AUC como métrica de optimización (apropiada para clasificación balanceada)
+        # Usar F1-Score como métrica de optimización (apropiada para clasificación balanceada)
         scores = cross_val_score(
             model, self.X_train, self.y_train,
-            cv=cv, scoring='roc_auc', n_jobs=-1
+            cv=cv, scoring='f1', n_jobs=-1
         )
         
         return scores.mean()
