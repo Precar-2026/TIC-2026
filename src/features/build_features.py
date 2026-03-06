@@ -48,7 +48,9 @@ class FeatureEngineer:
     # Variables seleccionadas para el modelo (basadas en EDA)
     SELECTED_FEATURES = [
         # Variables derivadas (más interpretables que las originales)
-        'edad_años',      # Conversión de age en días a años
+        'age',            # Edad en días
+        'weight',         # Peso en kg
+        'height',         # Altura en cm
         'imc',            # Índice de Masa Corporal (reemplaza weight y height)
         
         # Variables clínicas (alta correlación con objetivo)
@@ -130,7 +132,7 @@ class FeatureEngineer:
     def filter_hypertensive_patients(self) -> None:
         """
         Filtra el dataset para incluir ÚNICAMENTE a pacientes hipertensos.
-        Criterio (OMS): Presión Sistólica >= 130 O Diastólica >= 80.
+        Criterio (AHA/ACC): Presión Sistólica >= 130 O Diastólica >= 80.
         """
         logger.info("Aplicando criterio de inclusión: Conservando SOLO pacientes hipertensos...")
         initial_len = len(self.df)
