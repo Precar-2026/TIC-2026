@@ -173,14 +173,16 @@ class ModelTrainer:
                 random_state=self.RANDOM_STATE,
                 use_label_encoder=False,
                 eval_metric='logloss',
-                verbosity=0
+                verbosity=0,
+                n_jobs=-1
             )
         
         elif self.model_name == 'LGBM':
             return LGBMClassifier(
                 **params,
                 random_state=self.RANDOM_STATE,
-                verbose=-1
+                verbose=-1,
+                n_jobs=-1
             )
         
         else:
@@ -198,7 +200,7 @@ class ModelTrainer:
         """
         if self.model_name == 'LR':
             return {
-                'C': trial.suggest_float('C', 1e-4, 10.0, log=True),
+                'C': trial.suggest_float('C', 1e-4, 100.0, log=True),
                 'penalty': trial.suggest_categorical('penalty', ['l1', 'l2']),
                 'solver': trial.suggest_categorical('solver', ['liblinear', 'saga'])
             }
@@ -206,7 +208,7 @@ class ModelTrainer:
         elif self.model_name == 'RF':
             return {
                 'n_estimators': trial.suggest_int('n_estimators', 100, 500),
-                'max_depth': trial.suggest_int('max_depth', 10, 50),
+                'max_depth': trial.suggest_int('max_depth', 5, 50),
                 'min_samples_split': trial.suggest_int('min_samples_split', 2, 20),
                 'min_samples_leaf': trial.suggest_int('min_samples_leaf', 1, 10),
                 'max_features': trial.suggest_categorical('max_features', ['sqrt', 'log2'])
@@ -220,7 +222,9 @@ class ModelTrainer:
                 'subsample': trial.suggest_float('subsample', 0.6, 1.0),
                 'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
                 'min_child_weight': trial.suggest_int('min_child_weight', 1, 10),
-                'gamma': trial.suggest_float('gamma', 0, 5)
+                'gamma': trial.suggest_float('gamma', 0, 5),
+                'reg_alpha': trial.suggest_float('reg_alpha', 1e-5, 1.0, log=True),
+                'reg_lambda': trial.suggest_float('reg_lambda', 1e-5, 1.0, log=True),
             }
         
         elif self.model_name == 'LGBM':
@@ -231,7 +235,9 @@ class ModelTrainer:
                 'max_depth': trial.suggest_int('max_depth', 3, 15),
                 'min_child_samples': trial.suggest_int('min_child_samples', 5, 50),
                 'subsample': trial.suggest_float('subsample', 0.6, 1.0),
-                'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0)
+                'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
+                'reg_alpha': trial.suggest_float('reg_alpha', 1e-5, 1.0, log=True),
+                'reg_lambda': trial.suggest_float('reg_lambda', 1e-5, 1.0, log=True),
             }
     
     def objective(self, trial: optuna.Trial) -> float:
