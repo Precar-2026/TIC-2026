@@ -51,7 +51,6 @@ from sklearn.metrics import (
     f1_score,
     roc_auc_score,
     matthews_corrcoef,
-    confusion_matrix
 )
 
 # Suprimir warnings innecesarios
@@ -115,8 +114,6 @@ class ModelTrainer:
         self.y_train = None
         self.X_val = None
         self.y_val = None
-        self.X_test = None
-        self.y_test = None
         
         # Mejores parámetros y modelo
         self.best_params = None
@@ -126,7 +123,7 @@ class ModelTrainer:
         
     def load_data(self) -> None:
         """
-        Carga los datos de entrenamiento, validación y prueba desde archivos CSV.
+        Carga los datos de entrenamiento y validación desde archivos CSV.
         """
         logger.info(f"Cargando datos desde: {self.input_dir}")
         
@@ -134,22 +131,17 @@ class ModelTrainer:
         self.y_train = pd.read_csv(os.path.join(self.input_dir, 'y_train.csv')).values.ravel()
         self.X_val = pd.read_csv(os.path.join(self.input_dir, 'X_val.csv'))
         self.y_val = pd.read_csv(os.path.join(self.input_dir, 'y_val.csv')).values.ravel()
-        self.X_test = pd.read_csv(os.path.join(self.input_dir, 'X_test.csv'))
-        self.y_test = pd.read_csv(os.path.join(self.input_dir, 'y_test.csv')).values.ravel()
         
-        total = self.X_train.shape[0] + self.X_val.shape[0] + self.X_test.shape[0]
+        total = self.X_train.shape[0] + self.X_val.shape[0]
         logger.info("Datos cargados:")
         logger.info(f"  Entrenamiento: {self.X_train.shape[0]:,} registros ({self.X_train.shape[0]/total*100:.1f}%), {self.X_train.shape[1]} características")
         logger.info(f"  Validación: {self.X_val.shape[0]:,} registros ({self.X_val.shape[0]/total*100:.1f}%), {self.X_val.shape[1]} características")
-        logger.info(f"  Prueba: {self.X_test.shape[0]:,} registros ({self.X_test.shape[0]/total*100:.1f}%), {self.X_test.shape[1]} características")
         
         # Verificar balance en todos los conjuntos
         train_balance = pd.Series(self.y_train).value_counts(normalize=True) * 100
         val_balance = pd.Series(self.y_val).value_counts(normalize=True) * 100
-        test_balance = pd.Series(self.y_test).value_counts(normalize=True) * 100
         logger.info(f"  Balance de clases - Train: {train_balance[0]:.1f}% / {train_balance[1]:.1f}%")
         logger.info(f"  Balance de clases - Val: {val_balance[0]:.1f}% / {val_balance[1]:.1f}%")
-        logger.info(f"  Balance de clases - Test: {test_balance[0]:.1f}% / {test_balance[1]:.1f}%")
     
     def create_model(self, params: Dict[str, Any]) -> Any:
         """
@@ -328,7 +320,7 @@ class ModelTrainer:
     
     def evaluate_model(self) -> Dict[str, float]:
         """
-        Evalúa el modelo en los conjuntos de validación y prueba con múltiples métricas.
+        Evalúa el modelo en los conjuntos de validación con múltiples métricas.
         
         Returns:
             Diccionario con todas las métricas calculadas
@@ -347,35 +339,8 @@ class ModelTrainer:
             'val_mcc': matthews_corrcoef(self.y_val, y_val_pred)
         }
         
-        # Evaluar en prueba
-        logger.info("Evaluando modelo en conjunto de prueba...")
-        y_pred = self.best_model.predict(self.X_test)
-        y_pred_proba = self.best_model.predict_proba(self.X_test)[:, 1] if hasattr(self.best_model, 'predict_proba') else y_pred
         
-        # Calcular métricas de prueba
-        self.metrics = {
-            'test_accuracy': accuracy_score(self.y_test, y_pred),
-            'test_precision': precision_score(self.y_test, y_pred, zero_division=0),
-            'test_recall': recall_score(self.y_test, y_pred, zero_division=0),
-            'test_f1_score': f1_score(self.y_test, y_pred, zero_division=0),
-            'test_roc_auc': roc_auc_score(self.y_test, y_pred_proba),
-            'test_mcc': matthews_corrcoef(self.y_test, y_pred)
-        }
-        
-        # Matriz de confusión (solo para test)
-        cm = confusion_matrix(self.y_test, y_pred)
-        tn, fp, fn, tp = cm.ravel()
-        
-        self.metrics['true_negatives'] = int(tn)
-        self.metrics['false_positives'] = int(fp)
-        self.metrics['false_negatives'] = int(fn)
-        self.metrics['true_positives'] = int(tp)
-        
-        # Métricas adicionales derivadas
-        self.metrics['test_specificity'] = tn / (tn + fp) if (tn + fp) > 0 else 0
-        self.metrics['test_sensitivity'] = tp / (tp + fn) if (tp + fn) > 0 else 0
-        
-        return self.metrics
+        return self.val_metrics
     
     def log_to_mlflow(self) -> None:
         """
@@ -437,23 +402,6 @@ class ModelTrainer:
         logger.info(f"  ROC-AUC:      {self.val_metrics['val_roc_auc']:.4f}")
         logger.info(f"  MCC:          {self.val_metrics['val_mcc']:.4f}")
         
-        logger.info("\nMÉTRICAS EN PRUEBA (TEST):")
-        logger.info(f"  Accuracy:     {self.metrics['test_accuracy']:.4f}")
-        logger.info(f"  Precision:    {self.metrics['test_precision']:.4f}")
-        logger.info(f"  Recall:       {self.metrics['test_recall']:.4f}")
-        logger.info(f"  F1-Score:     {self.metrics['test_f1_score']:.4f}")
-        logger.info(f"  ROC-AUC:      {self.metrics['test_roc_auc']:.4f}")
-        logger.info(f"  MCC:          {self.metrics['test_mcc']:.4f}")
-        
-        logger.info("\nMÉTRICAS ADICIONALES (TEST):")
-        logger.info(f"  Sensitivity:  {self.metrics['test_sensitivity']:.4f}")
-        logger.info(f"  Specificity:  {self.metrics['test_specificity']:.4f}")
-        
-        logger.info("\nMATRIZ DE CONFUSIÓN (TEST):")
-        logger.info(f"  Verdaderos Negativos:  {self.metrics['true_negatives']:,}")
-        logger.info(f"  Falsos Positivos:      {self.metrics['false_positives']:,}")
-        logger.info(f"  Falsos Negativos:      {self.metrics['false_negatives']:,}")
-        logger.info(f"  Verdaderos Positivos:  {self.metrics['true_positives']:,}")
         
         logger.info("\nMEJORES HIPERPARÁMETROS:")
         for param, value in self.best_params.items():
@@ -517,7 +465,7 @@ Modelos disponibles:
         '--input_dir',
         type=str,
         required=True,
-        help='Directorio con archivos X_train.csv, y_train.csv, X_val.csv, y_val.csv, X_test.csv, y_test.csv'
+        help='Directorio con archivos X_train.csv, y_train.csv, X_val.csv, y_val.csv'
     )
     parser.add_argument(
         '--model',
@@ -547,7 +495,7 @@ Modelos disponibles:
         return
     
     # Validar que los archivos requeridos existen
-    required_files = ['X_train.csv', 'y_train.csv', 'X_val.csv', 'y_val.csv', 'X_test.csv', 'y_test.csv']
+    required_files = ['X_train.csv', 'y_train.csv', 'X_val.csv', 'y_val.csv']
     for filename in required_files:
         filepath = os.path.join(args.input_dir, filename)
         if not os.path.exists(filepath):

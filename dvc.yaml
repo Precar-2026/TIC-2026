@@ -17,3 +17,35 @@ stages:
     outs:
     - data/processed/model_inputs
     - models/scaler.joblib
+  train_random_forest:
+    cmd: python src/models/train_model.py --input_dir 
+      data/processed/model_inputs --model RF --models_dir models --trials 50
+    deps:
+    - data/processed/model_inputs
+    - src/models/train_model.py
+    outs:
+    - models/best_model_RF.joblib
+  train_logistic_regression:
+    cmd: python src/models/train_model.py --input_dir 
+      data/processed/model_inputs --model LR --models_dir models --trials 50
+    deps:
+    - data/processed/model_inputs
+    - src/models/train_model.py
+    outs:
+    - models/best_model_LR.joblib
+  train_lightgbm:
+    cmd: python src/models/train_model.py --input_dir 
+      data/processed/model_inputs --model LGBM --models_dir models --trials 50
+    deps:
+    - data/processed/model_inputs
+    - src/models/train_model.py
+    outs:
+    - models/best_model_LGBM.joblib
+  train_xgboost:
+    cmd: python src/models/train_model.py --input_dir 
+      data/processed/model_inputs --model XGB --models_dir models --trials 50
+    deps:
+    - data/processed/model_inputs
+    - src/models/train_model.py
+    outs:
+    - models/best_model_XGB.joblib
