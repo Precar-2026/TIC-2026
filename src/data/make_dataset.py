@@ -34,13 +34,13 @@ class DataCleaner:
     """
     
     # Constantes de rangos fisiológicos basados en EDA y criterios médicos
-    ALTURA_MIN = 140  # cm
-    ALTURA_MAX = 200  # cm
-    PESO_MIN = 40     # kg
-    PESO_MAX = 150    # kg
+    ALTURA_MIN = 130  # cm
+    ALTURA_MAX = 220  # cm
+    PESO_MIN = 30     # kg
+    PESO_MAX = 200    # kg
     PRESION_SISTOLICA_MIN = 80   # mmHg
-    PRESION_SISTOLICA_MAX = 200  # mmHg
-    PRESION_DIASTOLICA_MIN = 60  # mmHg
+    PRESION_SISTOLICA_MAX = 240  # mmHg
+    PRESION_DIASTOLICA_MIN = 50  # mmHg
     PRESION_DIASTOLICA_MAX = 140 # mmHg
     DIAS_POR_ANIO = 365.25
     
@@ -176,7 +176,7 @@ class DataCleaner:
         
         # Índice de Masa Corporal
         df['imc'] = df['weight'] / ((df['height'] / 100) ** 2)
-        df['imc'] = df['imc'].round(2)
+        df['imc'] = df['imc'].round(5)
         
         logger.info("Variables derivadas creadas: edad_años, imc")
         return df
