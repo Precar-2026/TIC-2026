@@ -19,7 +19,7 @@ stages:
     - models/scaler.joblib
   train_random_forest:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model RF --models_dir models --trials 100
+      data/processed/model_inputs --model RF --models_dir models --trials 100 --reset_experiment
     deps:
     - data/processed/model_inputs
     - src/models/train_model.py
@@ -31,21 +31,24 @@ stages:
     deps:
     - data/processed/model_inputs
     - src/models/train_model.py
+    - models/best_model_RF.joblib
     outs:
     - models/best_model_LR.joblib
-  train_lightgbm:
-    cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model LGBM --models_dir models --trials 100
-    deps:
-    - data/processed/model_inputs
-    - src/models/train_model.py
-    outs:
-    - models/best_model_LGBM.joblib
   train_xgboost:
     cmd: python src/models/train_model.py --input_dir 
       data/processed/model_inputs --model XGB --models_dir models --trials 100
     deps:
     - data/processed/model_inputs
     - src/models/train_model.py
+    - models/best_model_LR.joblib
     outs:
     - models/best_model_XGB.joblib
+  train_lightgbm:
+    cmd: python src/models/train_model.py --input_dir 
+      data/processed/model_inputs --model LGBM --models_dir models --trials 100
+    deps:
+    - data/processed/model_inputs
+    - src/models/train_model.py
+    - models/best_model_XGB.joblib
+    outs:
+    - models/best_model_LGBM.joblib

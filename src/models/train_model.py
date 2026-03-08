@@ -28,6 +28,8 @@ import logging
 import os
 import joblib
 import warnings
+import re
+import shutil
 from typing import Dict, Any
 
 import optuna
@@ -71,6 +73,71 @@ EXPERIMENT_NAME = "Tesis_Cardio_Prediccion"
 
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 mlflow.set_experiment(EXPERIMENT_NAME)
+
+
+def get_current_experiment_number(models_dir: str) -> int:
+    """
+    Obtiene o crea el número de experimento actual para el pipeline.
+    
+    Si existe un archivo .current_experiment.txt, usa ese número para que todos 
+    los modelos del pipeline se guarden en la misma carpeta de experimento.
+    Si no existe, crea uno nuevo basado en las carpetas existentes.
+    
+    Args:
+        models_dir: Directorio donde se almacenan los experimentos
+        
+    Returns:
+        Número del experimento actual (int)
+    """
+    os.makedirs(models_dir, exist_ok=True)
+    
+    current_exp_file = os.path.join(models_dir, '.current_experiment.txt')
+    
+    # Si existe el archivo de experimento actual, usar ese número
+    if os.path.exists(current_exp_file):
+        try:
+            with open(current_exp_file, 'r') as f:
+                return int(f.read().strip())
+        except (ValueError, IOError):
+            pass
+    
+    # Si no existe, crear uno nuevo
+    # Buscar el número más alto de experimentos existentes
+    pattern = re.compile(r'^Experimento(\d+)$')
+    experiment_numbers = []
+    
+    if os.path.exists(models_dir):
+        for item in os.listdir(models_dir):
+            item_path = os.path.join(models_dir, item)
+            if os.path.isdir(item_path):
+                match = pattern.match(item)
+                if match:
+                    experiment_numbers.append(int(match.group(1)))
+    
+    # Calcular el siguiente número
+    next_number = max(experiment_numbers) + 1 if experiment_numbers else 1
+    
+    # Guardar el número actual en el archivo
+    with open(current_exp_file, 'w') as f:
+        f.write(str(next_number))
+    
+    return next_number
+
+
+def reset_experiment_counter(models_dir: str) -> None:
+    """
+    Elimina el archivo de experimento actual para iniciar uno nuevo.
+    
+    Llamar esta función después de completar todos los entrenamientos
+    del pipeline actual si deseas que la próxima ejecución use un nuevo número.
+    
+    Args:
+        models_dir: Directorio donde se almacenan los experimentos
+    """
+    current_exp_file = os.path.join(models_dir, '.current_experiment.txt')
+    if os.path.exists(current_exp_file):
+        os.remove(current_exp_file)
+        logger.info("Contador de experimentos reiniciado. Próxima ejecución usará nuevo número.")
 
 
 class ModelTrainer:
@@ -120,6 +187,10 @@ class ModelTrainer:
         self.best_model = None
         self.metrics = {}
         self.val_metrics = {}
+        
+        # Número de experimento
+        self.experiment_number = None
+        self.experiment_dir = None
         
     def load_data(self) -> None:
         """
@@ -230,7 +301,7 @@ class ModelTrainer:
         elif self.model_name == 'LGBM':
             return {
                 'n_estimators': trial.suggest_int('n_estimators', 100, 500),
-                'num_leaves': trial.suggest_int('num_leaves', 20, 150),
+                'num_leaves': trial.suggest_int('num_leaves', 10, 150),
                 'learning_rate': trial.suggest_float('learning_rate', 1e-3, 0.3, log=True),
                 'max_depth': trial.suggest_int('max_depth', 3, 15),
                 'min_child_samples': trial.suggest_int('min_child_samples', 5, 50),
@@ -250,7 +321,7 @@ class ModelTrainer:
             trial: Objeto trial de Optuna
             
         Returns:
-            Score promedio de validación cruzada (F1-Score)
+            Score promedio de validación cruzada (ROC-AUC)
         """
         # Obtener hiperparámetros sugeridos
         params = self.define_search_space(trial)
@@ -261,7 +332,7 @@ class ModelTrainer:
         # Validación cruzada estratificada
         cv = StratifiedKFold(n_splits=self.CV_FOLDS, shuffle=True, random_state=self.RANDOM_STATE)
         
-        # Usar F1-Score como métrica de optimización (apropiada para clasificación balanceada)
+        # Usar ROC-AUC como métrica de optimización (apropiada para clasificación balanceada)
         scores = cross_val_score(
             model, self.X_train, self.y_train,
             cv=cv, scoring='roc_auc', n_jobs=-1
@@ -280,7 +351,7 @@ class ModelTrainer:
         logger.info("Método de búsqueda: Bayesiana (TPE)")
         logger.info(f"Número de trials: {self.n_trials}")
         logger.info(f"Validación cruzada: {self.CV_FOLDS} folds estratificados")
-        logger.info("Métrica de optimización: F1-Score")
+        logger.info("Métrica de optimización: ROC-AUC")
         
         # Crear estudio de Optuna
         sampler = TPESampler(seed=self.RANDOM_STATE)
@@ -302,7 +373,7 @@ class ModelTrainer:
         best_score = study.best_value
         
         logger.info("Optimización completada")
-        logger.info(f"Mejor F1-Score (CV): {best_score:.4f}")
+        logger.info(f"Mejor ROC-AUC (CV): {best_score:.4f}")
         logger.info("Mejores hiperparámetros:")
         for param, value in self.best_params.items():
             logger.info(f"  {param}: {value}")
@@ -361,6 +432,12 @@ class ModelTrainer:
             mlflow.log_param("model_name", self.model_full_name)
             mlflow.log_param("n_trials", self.n_trials)
             mlflow.log_param("cv_folds", self.CV_FOLDS)
+            
+            # Registrar número de experimento si está disponible
+            if self.experiment_number is not None:
+                mlflow.log_param("experiment_number", self.experiment_number)
+                mlflow.log_param("experiment_folder", f"Experimento{self.experiment_number}")
+            
             mlflow.log_params(self.best_params)
             
             # Registrar métricas de validación y prueba
@@ -379,18 +456,36 @@ class ModelTrainer:
     
     def save_model(self) -> str:
         """
-        Guarda el modelo entrenado en formato joblib.
+        Guarda el modelo entrenado en formato joblib en dos ubicaciones:
+        1. Carpeta de experimento compartida (ExperimentoN) - todos los modelos del pipeline
+        2. Ubicación estándar (models/best_model_{MODELO}.joblib) para compatibilidad con DVC
         
         Returns:
-            Ruta del archivo guardado
+            Ruta del archivo guardado en la carpeta de experimento
         """
+        # Asegurar que existe el directorio base de modelos
         os.makedirs(self.models_dir, exist_ok=True)
-        model_path = os.path.join(self.models_dir, f"best_model_{self.model_name}.joblib")
         
-        joblib.dump(self.best_model, model_path)
-        logger.info(f"Modelo guardado en: {model_path}")
+        # Obtener el número de experimento actual (compartido entre todos los modelos del pipeline)
+        self.experiment_number = get_current_experiment_number(self.models_dir)
+        experiment_folder_name = f"Experimento{self.experiment_number}"
+        self.experiment_dir = os.path.join(self.models_dir, experiment_folder_name)
         
-        return model_path
+        # Crear directorio del experimento
+        os.makedirs(self.experiment_dir, exist_ok=True)
+        
+        # Guardar modelo en carpeta de experimento (historial)
+        experiment_model_path = os.path.join(self.experiment_dir, f"best_model_{self.model_name}.joblib")
+        joblib.dump(self.best_model, experiment_model_path)
+        logger.info(f"Modelo guardado en carpeta de experimento: {experiment_model_path}")
+        
+        # Copiar también a la ubicación estándar (para DVC)
+        standard_model_path = os.path.join(self.models_dir, f"best_model_{self.model_name}.joblib")
+        shutil.copy2(experiment_model_path, standard_model_path)
+        logger.info(f"Modelo copiado a ubicación DVC: {standard_model_path}")
+        logger.info(f"Experimento actual: {self.experiment_number}")
+        
+        return experiment_model_path
     
     def print_results_summary(self) -> None:
         """
@@ -433,11 +528,11 @@ class ModelTrainer:
         # 4. Evaluar modelo
         self.evaluate_model()
         
-        # 5. Registrar en MLflow
-        self.log_to_mlflow()
-        
-        # 6. Guardar modelo
+        # 5. Guardar modelo (antes de MLflow para registrar el número de experimento)
         self.save_model()
+        
+        # 6. Registrar en MLflow
+        self.log_to_mlflow()
         
         # 7. Mostrar resultados
         self.print_results_summary()
@@ -492,8 +587,18 @@ Modelos disponibles:
         default=50,
         help='Número de iteraciones para optimización con Optuna (default: 50)'
     )
+    parser.add_argument(
+        '--reset_experiment',
+        action='store_true',
+        help='Reinicia el contador de experimentos para iniciar uno nuevo'
+    )
     
     args = parser.parse_args()
+    
+    # Reiniciar experimento si se solicitó
+    if args.reset_experiment:
+        reset_experiment_counter(args.models_dir)
+        logger.info("Contador de experimentos reiniciado. Se creará un nuevo experimento.")
     
     # Validar que el directorio de entrada existe
     if not os.path.exists(args.input_dir):
