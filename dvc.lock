@@ -10,13 +10,13 @@ stages:
       size: 2941524
     - path: src/data/make_dataset.py
       hash: md5
-      md5: 9d6957573d5e0df400db84b3b576b58b
+      md5: c9b8eb9605be7143425b14298d95b807
       size: 10794
     outs:
     - path: data/processed/cardio_clean.csv
       hash: md5
-      md5: eb1b5454714b9014d69e99561cfdf614
-      size: 3277238
+      md5: eb36f6fcacce1a20a5517f4b52557f13
+      size: 3492215
   ingenieria_caracteristicas:
     cmd: python src/features/build_features.py --input 
       data/processed/cardio_clean.csv --output_dir data/processed/model_inputs 
@@ -24,8 +24,8 @@ stages:
     deps:
     - path: data/processed/cardio_clean.csv
       hash: md5
-      md5: eb1b5454714b9014d69e99561cfdf614
-      size: 3277238
+      md5: eb36f6fcacce1a20a5517f4b52557f13
+      size: 3492215
     - path: src/features/build_features.py
       hash: md5
       md5: de3fc4dd4c7835f11532ca9adc3f06b5
@@ -33,82 +33,82 @@ stages:
     outs:
     - path: data/processed/model_inputs
       hash: md5
-      md5: c016698ca0905e93bfa462cc8949cf72.dir
-      size: 13421501
+      md5: 05566f54650bbbea5e00f253b11dee4f.dir
+      size: 13444039
       nfiles: 6
     - path: models/scaler.joblib
       hash: md5
-      md5: 7e3951b3e781033214612fc1f9a3ab32
+      md5: 954e66cc251d51742288df82fab8f5fd
       size: 1223
   train_random_forest:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model RF --models_dir models --trials 50
+      data/processed/model_inputs --model RF --models_dir models --trials 100
     deps:
     - path: data/processed/model_inputs
       hash: md5
-      md5: c016698ca0905e93bfa462cc8949cf72.dir
-      size: 13421501
+      md5: 05566f54650bbbea5e00f253b11dee4f.dir
+      size: 13444039
       nfiles: 6
     - path: src/models/train_model.py
       hash: md5
-      md5: fd6c539299f1345b02e6530b2a9e03e5
-      size: 19284
+      md5: 3d181b0e3a7694bd1a503c1bf38ad5f8
+      size: 22463
     outs:
     - path: models/best_model_RF.joblib
       hash: md5
-      md5: 5b6553cce39e7edc8e6b38189d92ab56
-      size: 59358409
+      md5: 8cb540afc5c5e075986159f505f5802c
+      size: 36265929
   train_logistic_regression:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model LR --models_dir models --trials 50
+      data/processed/model_inputs --model LR --models_dir models --trials 100
     deps:
     - path: data/processed/model_inputs
       hash: md5
-      md5: c016698ca0905e93bfa462cc8949cf72.dir
-      size: 13421501
+      md5: 05566f54650bbbea5e00f253b11dee4f.dir
+      size: 13444039
       nfiles: 6
     - path: src/models/train_model.py
       hash: md5
-      md5: fd6c539299f1345b02e6530b2a9e03e5
-      size: 19284
+      md5: ed9b8d4e990bd6c9cb68300d90bb4de7
+      size: 22461
     outs:
     - path: models/best_model_LR.joblib
       hash: md5
-      md5: 48602e9de40b9b0db2f62c9192c1b0b4
+      md5: e0e2c794bbcaf427d93b929f1bae4e5e
       size: 1295
   train_lightgbm:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model LGBM --models_dir models --trials 50
+      data/processed/model_inputs --model LGBM --models_dir models --trials 100
     deps:
     - path: data/processed/model_inputs
       hash: md5
-      md5: c016698ca0905e93bfa462cc8949cf72.dir
-      size: 13421501
+      md5: 05566f54650bbbea5e00f253b11dee4f.dir
+      size: 13444039
       nfiles: 6
     - path: src/models/train_model.py
       hash: md5
-      md5: fd6c539299f1345b02e6530b2a9e03e5
-      size: 19284
+      md5: f9d314876a6e780f725dd3dd8b6655f3
+      size: 22459
     outs:
     - path: models/best_model_LGBM.joblib
       hash: md5
-      md5: 47615b7cd00f6d2f0cf1e604b0df2ed1
-      size: 1737252
+      md5: d7fc68193890c82d28d8d84eb2cf3a64
+      size: 644436
   train_xgboost:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model XGB --models_dir models --trials 50
+      data/processed/model_inputs --model XGB --models_dir models --trials 100
     deps:
     - path: data/processed/model_inputs
       hash: md5
-      md5: c016698ca0905e93bfa462cc8949cf72.dir
-      size: 13421501
+      md5: 05566f54650bbbea5e00f253b11dee4f.dir
+      size: 13444039
       nfiles: 6
     - path: src/models/train_model.py
       hash: md5
-      md5: fd6c539299f1345b02e6530b2a9e03e5
-      size: 19284
+      md5: 41ff469a5458cf3791cdab4f9bc2d1d6
+      size: 22459
     outs:
     - path: models/best_model_XGB.joblib
       hash: md5
-      md5: 4641053c0b9a53c0dba3735fc52ef8e9
-      size: 4548299
+      md5: 81fd9d79b2a7e32987a8482cb7dbdfc9
+      size: 456007
