@@ -264,7 +264,7 @@ class ModelTrainer:
         # Usar F1-Score como métrica de optimización (apropiada para clasificación balanceada)
         scores = cross_val_score(
             model, self.X_train, self.y_train,
-            cv=cv, scoring='f1', n_jobs=-1
+            cv=cv, scoring='roc_auc', n_jobs=-1
         )
         
         return scores.mean()
