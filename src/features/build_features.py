@@ -503,7 +503,7 @@ class FeatureEngineer:
         self.validate_data_quality()
 
         # 3. Filtrar pacientes hipertensos
-        self.filter_hypertensive_patients()
+        # self.filter_hypertensive_patients()
         
         # 4. Crear características avanzadas
         self.create_advanced_features()
