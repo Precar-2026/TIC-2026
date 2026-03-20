@@ -30,6 +30,7 @@ import joblib
 import warnings
 import re
 import shutil
+import json
 from typing import Dict, Any
 
 import optuna
@@ -157,7 +158,7 @@ class ModelTrainer:
     }
     
     # Configuración de validación cruzada
-    CV_FOLDS = 5
+    CV_FOLDS = 10
     RANDOM_STATE = 42
     
     def __init__(self, input_dir: str, model_name: str, models_dir: str, n_trials: int = 50):
@@ -187,6 +188,12 @@ class ModelTrainer:
         self.best_model = None
         self.metrics = {}
         self.val_metrics = {}
+        self.study = None
+        self.best_cv_roc_auc = None
+
+        # Predicciones de validación para análisis posterior
+        self.y_val_pred = None
+        self.y_val_pred_proba = None
         
         # Número de experimento
         self.experiment_number = None
@@ -289,7 +296,7 @@ class ModelTrainer:
             return {
                 'n_estimators': trial.suggest_int('n_estimators', 100, 500),
                 'max_depth': trial.suggest_int('max_depth', 3, 15),
-                'learning_rate': trial.suggest_float('learning_rate', 1e-3, 0.3, log=True),
+                'learning_rate': trial.suggest_float('learning_rate', 1e-3, 0.1, log=True),
                 'subsample': trial.suggest_float('subsample', 0.6, 1.0),
                 'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
                 'min_child_weight': trial.suggest_int('min_child_weight', 1, 10),
@@ -302,7 +309,7 @@ class ModelTrainer:
             return {
                 'n_estimators': trial.suggest_int('n_estimators', 100, 500),
                 'num_leaves': trial.suggest_int('num_leaves', 10, 150),
-                'learning_rate': trial.suggest_float('learning_rate', 1e-3, 0.3, log=True),
+                'learning_rate': trial.suggest_float('learning_rate', 1e-3, 0.1, log=True),
                 'max_depth': trial.suggest_int('max_depth', 3, 15),
                 'min_child_samples': trial.suggest_int('min_child_samples', 5, 50),
                 'subsample': trial.suggest_float('subsample', 0.6, 1.0),
@@ -367,10 +374,13 @@ class ModelTrainer:
             n_trials=self.n_trials,
             show_progress_bar=False
         )
+
+        self.study = study
         
         # Obtener mejores parámetros
         self.best_params = study.best_params
         best_score = study.best_value
+        self.best_cv_roc_auc = best_score
         
         logger.info("Optimización completada")
         logger.info(f"Mejor ROC-AUC (CV): {best_score:.4f}")
@@ -406,6 +416,9 @@ class ModelTrainer:
         logger.info("Evaluando modelo en conjunto de validación...")
         y_val_pred = self.best_model.predict(self.X_val)
         y_val_pred_proba = self.best_model.predict_proba(self.X_val)[:, 1] if hasattr(self.best_model, 'predict_proba') else y_val_pred
+
+        self.y_val_pred = y_val_pred
+        self.y_val_pred_proba = y_val_pred_proba
         
         self.val_metrics = {
             'val_accuracy': accuracy_score(self.y_val, y_val_pred),
@@ -418,6 +431,65 @@ class ModelTrainer:
         
         
         return self.val_metrics
+
+    def save_training_artifacts(self) -> str:
+        """
+        Guarda artefactos de entrenamiento para análisis visual en notebooks.
+
+        Incluye:
+        - Historial de trials de Optuna
+        - Métricas de validación
+        - Mejores hiperparámetros
+        - Predicciones de validación (y_true, y_pred, y_pred_proba)
+
+        Returns:
+            Ruta al directorio donde se guardaron los artefactos
+        """
+        if self.experiment_dir is None:
+            raise RuntimeError("No se puede guardar artefactos sin directorio de experimento.")
+
+        artifacts_dir = os.path.join(self.experiment_dir, "training_artifacts")
+        os.makedirs(artifacts_dir, exist_ok=True)
+
+        # 1) Historial de trials de Optuna
+        if self.study is not None:
+            trials_df = self.study.trials_dataframe(attrs=("number", "value", "state", "params"))
+            trials_path = os.path.join(artifacts_dir, f"optuna_trials_{self.model_name}.csv")
+            trials_df.to_csv(trials_path, index=False)
+            logger.info(f"Trials de Optuna guardados en: {trials_path}")
+
+        # 2) Métricas de validación
+        metrics_payload = {
+            "model": self.model_name,
+            "model_full_name": self.model_full_name,
+            "best_cv_roc_auc": self.best_cv_roc_auc,
+            **self.val_metrics,
+        }
+        metrics_df = pd.DataFrame([metrics_payload])
+        metrics_path = os.path.join(artifacts_dir, f"val_metrics_{self.model_name}.csv")
+        metrics_df.to_csv(metrics_path, index=False)
+        logger.info(f"Métricas de validación guardadas en: {metrics_path}")
+
+        # 3) Mejores hiperparámetros
+        params_path = os.path.join(artifacts_dir, f"best_params_{self.model_name}.json")
+        with open(params_path, "w", encoding="utf-8") as f:
+            json.dump(self.best_params, f, indent=2, ensure_ascii=False)
+        logger.info(f"Mejores hiperparámetros guardados en: {params_path}")
+
+        # 4) Predicciones de validación
+        if self.y_val_pred is not None and self.y_val_pred_proba is not None:
+            preds_df = pd.DataFrame(
+                {
+                    "y_true": self.y_val,
+                    "y_pred": self.y_val_pred,
+                    "y_pred_proba": self.y_val_pred_proba,
+                }
+            )
+            preds_path = os.path.join(artifacts_dir, f"val_predictions_{self.model_name}.csv")
+            preds_df.to_csv(preds_path, index=False)
+            logger.info(f"Predicciones de validación guardadas en: {preds_path}")
+
+        return artifacts_dir
     
     def log_to_mlflow(self) -> None:
         """
@@ -530,11 +602,14 @@ class ModelTrainer:
         
         # 5. Guardar modelo (antes de MLflow para registrar el número de experimento)
         self.save_model()
+
+        # 6. Guardar artefactos para visualización
+        self.save_training_artifacts()
         
-        # 6. Registrar en MLflow
+        # 7. Registrar en MLflow
         self.log_to_mlflow()
         
-        # 7. Mostrar resultados
+        # 8. Mostrar resultados
         self.print_results_summary()
         
         logger.info(f"Pipeline de entrenamiento completado para {self.model_full_name}")
