@@ -52,8 +52,8 @@ stages:
       nfiles: 6
     - path: src/models/train_model.py
       hash: md5
-      md5: 2734051ff40bdd511945809b717fc2e1
-      size: 27402
+      md5: 3a3dc63f51983d615ea0f53375d1b05b
+      size: 33190
     outs:
     - path: models/best_model_RF.joblib
       hash: md5
@@ -74,8 +74,8 @@ stages:
       size: 131651497
     - path: src/models/train_model.py
       hash: md5
-      md5: 2734051ff40bdd511945809b717fc2e1
-      size: 27402
+      md5: 3a3dc63f51983d615ea0f53375d1b05b
+      size: 33190
     outs:
     - path: models/best_model_LR.joblib
       hash: md5
@@ -96,8 +96,8 @@ stages:
       size: 892598
     - path: src/models/train_model.py
       hash: md5
-      md5: 2734051ff40bdd511945809b717fc2e1
-      size: 27402
+      md5: 3a3dc63f51983d615ea0f53375d1b05b
+      size: 33190
     outs:
     - path: models/best_model_LGBM.joblib
       hash: md5
@@ -118,8 +118,8 @@ stages:
       size: 1739
     - path: src/models/train_model.py
       hash: md5
-      md5: 2734051ff40bdd511945809b717fc2e1
-      size: 27402
+      md5: 3a3dc63f51983d615ea0f53375d1b05b
+      size: 33190
     outs:
     - path: models/best_model_XGB.joblib
       hash: md5

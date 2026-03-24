@@ -23,6 +23,7 @@ Fecha: Marzo 2026
 """
 
 import pandas as pd
+import numpy as np
 import argparse
 import logging
 import os
@@ -194,6 +195,8 @@ class ModelTrainer:
         # Predicciones de validación para análisis posterior
         self.y_val_pred = None
         self.y_val_pred_proba = None
+        self.y_train_pred = None
+        self.y_train_pred_proba = None
         
         # Número de experimento
         self.experiment_number = None
@@ -419,6 +422,12 @@ class ModelTrainer:
 
         self.y_val_pred = y_val_pred
         self.y_val_pred_proba = y_val_pred_proba
+
+        # Predicciones de entrenamiento para diagnóstico de sobreajuste
+        y_train_pred = self.best_model.predict(self.X_train)
+        y_train_pred_proba = self.best_model.predict_proba(self.X_train)[:, 1] if hasattr(self.best_model, 'predict_proba') else y_train_pred
+        self.y_train_pred = y_train_pred
+        self.y_train_pred_proba = y_train_pred_proba
         
         self.val_metrics = {
             'val_accuracy': accuracy_score(self.y_val, y_val_pred),
@@ -431,6 +440,98 @@ class ModelTrainer:
         
         
         return self.val_metrics
+
+    def analyze_overfitting_and_problematic_data(self) -> Dict[str, Any]:
+        """
+        Analiza señales de sobreajuste y detecta muestras problemáticas en validación.
+
+        Returns:
+            Diccionario con:
+            - overfitting: métricas de train/val y brechas
+            - problematic_samples: DataFrame con casos conflictivos de validación
+        """
+        if self.y_val_pred is None or self.y_val_pred_proba is None:
+            raise RuntimeError("Debes ejecutar evaluate_model() antes del análisis de sobreajuste.")
+
+        if self.y_train_pred is None or self.y_train_pred_proba is None:
+            raise RuntimeError("No hay predicciones de entrenamiento para análisis de sobreajuste.")
+
+        # Métricas de entrenamiento para comparar contra validación
+        train_metrics = {
+            'train_accuracy': accuracy_score(self.y_train, self.y_train_pred),
+            'train_precision': precision_score(self.y_train, self.y_train_pred, zero_division=0),
+            'train_recall': recall_score(self.y_train, self.y_train_pred, zero_division=0),
+            'train_f1_score': f1_score(self.y_train, self.y_train_pred, zero_division=0),
+            'train_roc_auc': roc_auc_score(self.y_train, self.y_train_pred_proba),
+            'train_mcc': matthews_corrcoef(self.y_train, self.y_train_pred)
+        }
+
+        gaps = {
+            'gap_accuracy': train_metrics['train_accuracy'] - self.val_metrics['val_accuracy'],
+            'gap_precision': train_metrics['train_precision'] - self.val_metrics['val_precision'],
+            'gap_recall': train_metrics['train_recall'] - self.val_metrics['val_recall'],
+            'gap_f1_score': train_metrics['train_f1_score'] - self.val_metrics['val_f1_score'],
+            'gap_roc_auc': train_metrics['train_roc_auc'] - self.val_metrics['val_roc_auc'],
+            'gap_mcc': train_metrics['train_mcc'] - self.val_metrics['val_mcc']
+        }
+
+        f1_gap = gaps['gap_f1_score']
+        auc_gap = gaps['gap_roc_auc']
+        if f1_gap >= 0.08 or auc_gap >= 0.08:
+            overfitting_risk = 'alto'
+        elif f1_gap >= 0.04 or auc_gap >= 0.04:
+            overfitting_risk = 'medio'
+        else:
+            overfitting_risk = 'bajo'
+
+        # Casos problemáticos en validación:
+        # 1) Errores de alta confianza (posibles outliers/etiquetas ruidosas)
+        # 2) Casos muy inciertos (frontera de decisión)
+        val_df = self.X_val.copy().reset_index(drop=True)
+        val_df['row_id_val'] = np.arange(len(val_df))
+        val_df['y_true'] = self.y_val
+        val_df['y_pred'] = self.y_val_pred
+        val_df['y_pred_proba'] = self.y_val_pred_proba
+        val_df['is_error'] = (val_df['y_true'] != val_df['y_pred']).astype(int)
+        val_df['pred_confidence'] = np.where(
+            val_df['y_pred'] == 1,
+            val_df['y_pred_proba'],
+            1 - val_df['y_pred_proba']
+        )
+        val_df['uncertainty'] = np.abs(val_df['y_pred_proba'] - 0.5)
+
+        high_conf_threshold = float(val_df['pred_confidence'].quantile(0.90))
+        high_conf_errors = val_df[
+            (val_df['is_error'] == 1) & (val_df['pred_confidence'] >= high_conf_threshold)
+        ].copy()
+        high_conf_errors['problem_type'] = 'error_alta_confianza'
+        high_conf_errors['problem_score'] = high_conf_errors['pred_confidence']
+
+        low_uncertainty_threshold = float(val_df['uncertainty'].quantile(0.10))
+        uncertain_cases = val_df[
+            val_df['uncertainty'] <= low_uncertainty_threshold
+        ].copy()
+        uncertain_cases['problem_type'] = 'caso_incierto'
+        uncertain_cases['problem_score'] = 1 - (2 * uncertain_cases['uncertainty'])
+
+        problematic_samples = pd.concat([high_conf_errors, uncertain_cases], ignore_index=True)
+        problematic_samples = problematic_samples.drop_duplicates(subset=['row_id_val'])
+        problematic_samples = problematic_samples.sort_values('problem_score', ascending=False)
+
+        analysis = {
+            'overfitting': {
+                **train_metrics,
+                **self.val_metrics,
+                **gaps,
+                'overfitting_risk': overfitting_risk,
+                'high_conf_error_threshold': high_conf_threshold,
+                'low_uncertainty_threshold': low_uncertainty_threshold,
+                'n_problematic_samples': int(problematic_samples.shape[0])
+            },
+            'problematic_samples': problematic_samples
+        }
+
+        return analysis
 
     def save_training_artifacts(self) -> str:
         """
@@ -488,6 +589,18 @@ class ModelTrainer:
             preds_path = os.path.join(artifacts_dir, f"val_predictions_{self.model_name}.csv")
             preds_df.to_csv(preds_path, index=False)
             logger.info(f"Predicciones de validación guardadas en: {preds_path}")
+
+        # 5) Diagnóstico de sobreajuste y muestras problemáticas
+        analysis = self.analyze_overfitting_and_problematic_data()
+
+        overfit_path = os.path.join(artifacts_dir, f"overfitting_diagnostics_{self.model_name}.json")
+        with open(overfit_path, "w", encoding="utf-8") as f:
+            json.dump(analysis['overfitting'], f, indent=2, ensure_ascii=False)
+        logger.info(f"Diagnóstico de sobreajuste guardado en: {overfit_path}")
+
+        problematic_path = os.path.join(artifacts_dir, f"problematic_validation_samples_{self.model_name}.csv")
+        analysis['problematic_samples'].to_csv(problematic_path, index=False)
+        logger.info(f"Muestras problemáticas guardadas en: {problematic_path}")
 
         return artifacts_dir
     
