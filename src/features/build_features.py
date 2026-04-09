@@ -10,7 +10,6 @@ Este módulo implementa un pipeline avanzado de feature engineering basado en:
 Nuevas características derivadas:
 - Pulse Pressure: Indicador de rigidez arterial
 - Mean Arterial Pressure (MAP): Presión arterial promedio
-- Rate Pressure Product (RPP): Índice de trabajo cardíaco
 - Categorías de IMC: Clasificación clínica OMS
 - Categorías de edad: Grupos de riesgo cardiovascular
 - Índices de riesgo: Combinaciones de factores de riesgo
@@ -118,7 +117,6 @@ class FeatureEngineer:
         Features cardiovasculares:
         - Pulse Pressure: Rigidez arterial (sistólica - diastólica)
         - Mean Arterial Pressure (MAP): 1/3 sistólica + 2/3 diastólica
-        - Rate Pressure Product (RPP): Trabajo cardíaco estimado
         - Presión Diferencial Ratio: Indicador de elasticidad arterial
         
         Features categóricas (basadas en guías clínicas):
@@ -141,10 +139,13 @@ class FeatureEngineer:
         # 2. Mean Arterial Pressure (Presión Arterial Media)
         self.df['map'] = (self.df['ap_hi'] + 2 * self.df['ap_lo']) / 3
         
-        # 3. Rate Pressure Product (Producto de frecuencia-presión) - trabajo cardíaco
-        # Estimado usando edad como proxy de frecuencia cardíaca
-        estimated_hr = 220 - (self.df['age'] / 365.25)
-        self.df['rpp'] = (self.df['ap_hi'] * estimated_hr) / 1000  # Escalado
+        # 3. Presión de pulso normalizada (indicador de rigidez arterial ajustado por nivel basal)
+        # Nota metodológica: el Rate Pressure Product (RPP) original utilizaba 220 - edad
+        # como proxy de frecuencia cardíaca máxima teórica, lo cual no es válido en
+        # pacientes en reposo sin registro de FC real. Se sustituye por la presión de
+        # pulso normalizada (pulse_pressure / ap_hi), que es clínicamente robusta y
+        # equivalente al pressure_ratio calculado más adelante. RPP queda excluido del
+        # pipeline por ausencia de FC registrada en el dataset.
         
         # 4. Presión Diferencial Ratio (elasticidad arterial)
         self.df['pressure_ratio'] = self.df['pulse_pressure'] / self.df['ap_hi']
@@ -217,8 +218,8 @@ class FeatureEngineer:
         # 16. Ratio Colesterol/Glucosa (balance metabólico)
         self.df['col_gluc_ratio'] = self.df['cholesterol'] / (self.df['gluc'] + 0.5)
         
-        logger.info("Creadas 16 nuevas características cardiovasculares")
-        logger.info("  - 4 features derivadas (pulse pressure, MAP, RPP, pressure ratio)")
+        logger.info("Creadas 15 nuevas características cardiovasculares")
+        logger.info("  - 3 features derivadas (pulse pressure, MAP, pressure ratio)")
         logger.info("  - 3 categorías clínicas (IMC, edad, hipertensión)")
         logger.info("  - 5 interacciones (IMC×edad, presión×IMC, col×gluc, lifestyle, risk count)")
         logger.info("  - 4 transformaciones no lineales (cuadrados, log, ratios)")
@@ -397,10 +398,10 @@ class FeatureEngineer:
     
     def save_scaler(self, scaler: RobustScaler) -> None:
         """
-        Guarda el objeto RobustScaler para uso en inferencia.
+        Guarda el objeto RobustScaler para uso en inferencia y evaluación final.
         
         Args:
-            scaler: Objeto StandardScaler ajustado
+            scaler: Objeto RobustScaler ajustado exclusivamente sobre X_train
         """
         os.makedirs(os.path.dirname(self.scaler_path), exist_ok=True)
         joblib.dump(scaler, self.scaler_path)
@@ -462,7 +463,6 @@ class FeatureEngineer:
         logger.info("   1. Features Cardiovasculares Derivadas:")
         logger.info("      • Pulse Pressure (rigidez arterial)")
         logger.info("      • Mean Arterial Pressure (MAP)")
-        logger.info("      • Rate Pressure Product (trabajo cardíaco)")
         logger.info("      • Pressure Ratio (elasticidad arterial)")
         logger.info("   2. Categorías Clínicas:")
         logger.info("      • IMC (clasificación OMS)")
