@@ -34,7 +34,7 @@ import os
 import joblib
 from typing import Tuple, Dict
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import RobustScaler
+from sklearn.preprocessing import RobustScaler, StandardScaler
 from sklearn.feature_selection import VarianceThreshold
 
 # Configuración de logging
@@ -59,7 +59,16 @@ class FeatureEngineer:
     TEST_SIZE = 0.10
     RANDOM_STATE = 42
     
-    def __init__(self, input_path: str, output_dir: str, scaler_path: str):
+    def __init__(
+        self,
+        input_path: str,
+        output_dir: str,
+        scaler_path: str,
+        use_hypertensive_only: bool = False,
+        disable_advanced_features: bool = False,
+        drop_features: list[str] | None = None,
+        scaler_type: str = 'robust',
+    ):
         """
         Inicializa el ingeniero de características avanzado.
         
@@ -67,12 +76,24 @@ class FeatureEngineer:
             input_path: Ruta del archivo CSV con datos limpios
             output_dir: Directorio donde se guardarán los conjuntos procesados
             scaler_path: Ruta donde se guardará el objeto Scaler
+            use_hypertensive_only: Si True, filtra solo pacientes hipertensos
+            disable_advanced_features: Si True, omite creación de variables derivadas avanzadas
+            drop_features: Lista de features a eliminar antes de split/escalado
+            scaler_type: Tipo de escalado {'robust', 'standard', 'none'}
         """
         self.input_path = input_path
         self.output_dir = output_dir
         self.scaler_path = scaler_path
+        self.use_hypertensive_only = use_hypertensive_only
+        self.disable_advanced_features = disable_advanced_features
+        self.drop_features = drop_features or []
+        self.scaler_type = scaler_type.lower()
         self.df = None
         self.feature_stats = {}
+
+        valid_scalers = {'robust', 'standard', 'none'}
+        if self.scaler_type not in valid_scalers:
+            raise ValueError(f"scaler_type inválido: {self.scaler_type}. Use uno de {valid_scalers}")
         
     def load_data(self) -> pd.DataFrame:
         """Carga el dataset limpio desde la ruta especificada."""
@@ -249,6 +270,15 @@ class FeatureEngineer:
         # Eliminar variables redundantes y target
         X = self.df.drop(columns=vars_to_drop + [self.TARGET_VARIABLE], errors='ignore')
         y = self.df[self.TARGET_VARIABLE].copy()
+
+        if self.drop_features:
+            to_drop = [c for c in self.drop_features if c in X.columns]
+            if to_drop:
+                X = X.drop(columns=to_drop, errors='ignore')
+                logger.info(f"Features eliminadas por configuración: {len(to_drop)}")
+            missing = [c for c in self.drop_features if c not in X.columns and c not in to_drop]
+            if missing:
+                logger.warning(f"Algunas features indicadas no existen y se omitieron: {missing}")
         
         # Eliminar features con varianza cero (si las hay)
         initial_features = X.shape[1]
@@ -341,7 +371,7 @@ class FeatureEngineer:
         
         return X_train, X_val, X_test, y_train, y_val, y_test
     
-    def normalize_features(self, X_train: pd.DataFrame, X_val: pd.DataFrame, X_test: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, RobustScaler]:
+    def normalize_features(self, X_train: pd.DataFrame, X_val: pd.DataFrame, X_test: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, object | None]:
         """
         Normaliza las variables utilizando RobustScaler.
         
@@ -357,9 +387,18 @@ class FeatureEngineer:
         Returns:
             Tupla con (X_train_scaled, X_val_scaled, X_test_scaled, scaler)
         """
-        logger.info("Normalizando variables (RobustScaler - resistente a outliers)...")
-        
-        scaler = RobustScaler()
+        if self.scaler_type == 'none':
+            logger.info("Escalado desactivado (scaler_type=none).")
+            self.feature_stats['scaling_median'] = np.nan
+            self.feature_stats['scaling_iqr'] = np.nan
+            return X_train.copy(), X_val.copy(), X_test.copy(), None
+
+        if self.scaler_type == 'standard':
+            logger.info("Normalizando variables (StandardScaler)...")
+            scaler = StandardScaler()
+        else:
+            logger.info("Normalizando variables (RobustScaler - resistente a outliers)...")
+            scaler = RobustScaler()
         
         # Ajustar y transformar conjunto de entrenamiento
         X_train_scaled = pd.DataFrame(
@@ -387,8 +426,8 @@ class FeatureEngineer:
         iqr_train = (X_train_scaled.quantile(0.75) - X_train_scaled.quantile(0.25)).mean()
         
         logger.info("Normalización aplicada correctamente")
-        logger.info(f"Mediana del conjunto de entrenamiento: {median_train:.6f} (esperado: ~0)")
-        logger.info(f"IQR promedio del conjunto de entrenamiento: {iqr_train:.6f} (esperado: ~1)")
+        logger.info(f"Mediana del conjunto de entrenamiento: {median_train:.6f}")
+        logger.info(f"IQR promedio del conjunto de entrenamiento: {iqr_train:.6f}")
         
         # Almacenar estadísticas
         self.feature_stats['scaling_median'] = round(median_train, 6)
@@ -396,13 +435,16 @@ class FeatureEngineer:
         
         return X_train_scaled, X_val_scaled, X_test_scaled, scaler
     
-    def save_scaler(self, scaler: RobustScaler) -> None:
+    def save_scaler(self, scaler: object | None) -> None:
         """
         Guarda el objeto RobustScaler para uso en inferencia y evaluación final.
         
         Args:
             scaler: Objeto RobustScaler ajustado exclusivamente sobre X_train
         """
+        if scaler is None:
+            logger.info("No se guardó escalador (scaler_type=none).")
+            return
         os.makedirs(os.path.dirname(self.scaler_path), exist_ok=True)
         joblib.dump(scaler, self.scaler_path)
         logger.info(f"Escalador guardado en: {self.scaler_path}")
@@ -502,11 +544,17 @@ class FeatureEngineer:
         # 2. Validar calidad
         self.validate_data_quality()
 
-        # 3. Filtrar pacientes hipertensos
-        # self.filter_hypertensive_patients()
+        # 3. Filtrar pacientes hipertensos (opcional)
+        if self.use_hypertensive_only:
+            self.filter_hypertensive_patients()
+        else:
+            logger.info("Filtro de hipertensos desactivado.")
         
-        # 4. Crear características avanzadas
-        self.create_advanced_features()
+        # 4. Crear características avanzadas (opcional)
+        if not self.disable_advanced_features:
+            self.create_advanced_features()
+        else:
+            logger.info("Creación de características avanzadas desactivada por configuración.")
         
         # 5. Seleccionar variables finales
         X, y = self.select_features()
@@ -572,6 +620,29 @@ Ejemplo de uso:
         required=True,
         help='Ruta para guardar el objeto StandardScaler'
     )
+    parser.add_argument(
+        '--use_hypertensive_only',
+        action='store_true',
+        help='Filtra para conservar solo pacientes hipertensos antes del split'
+    )
+    parser.add_argument(
+        '--disable_advanced_features',
+        action='store_true',
+        help='Desactiva la creación de variables derivadas avanzadas'
+    )
+    parser.add_argument(
+        '--drop_features',
+        type=str,
+        default='',
+        help='Lista separada por comas de features a eliminar (ej: imc_squared,edad_squared)'
+    )
+    parser.add_argument(
+        '--scaler_type',
+        type=str,
+        default='robust',
+        choices=['robust', 'standard', 'none'],
+        help='Tipo de escalado a aplicar'
+    )
     
     args = parser.parse_args()
     
@@ -581,7 +652,17 @@ Ejemplo de uso:
         return
     
     # Ejecutar pipeline
-    engineer = FeatureEngineer(args.input, args.output_dir, args.scaler_path)
+    drop_features = [c.strip() for c in args.drop_features.split(',') if c.strip()]
+
+    engineer = FeatureEngineer(
+        input_path=args.input,
+        output_dir=args.output_dir,
+        scaler_path=args.scaler_path,
+        use_hypertensive_only=args.use_hypertensive_only,
+        disable_advanced_features=args.disable_advanced_features,
+        drop_features=drop_features,
+        scaler_type=args.scaler_type,
+    )
     engineer.run_pipeline()
 
 
