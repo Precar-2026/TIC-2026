@@ -33,27 +33,58 @@ class DataCleaner:
     para el análisis predictivo.
     """
     
-    # Constantes de rangos fisiológicos basados en EDA y criterios médicos
-    ALTURA_MIN = 130  # cm
-    ALTURA_MAX = 220  # cm
-    PESO_MIN = 30     # kg
-    PESO_MAX = 200    # kg
-    PRESION_SISTOLICA_MIN = 80   # mmHg
-    PRESION_SISTOLICA_MAX = 240  # mmHg
-    PRESION_DIASTOLICA_MIN = 50  # mmHg
-    PRESION_DIASTOLICA_MAX = 140 # mmHg
+    # Constantes por defecto de rangos fisiológicos basados en EDA y criterios médicos
+    ALTURA_MIN_DEFAULT = 130  # cm
+    ALTURA_MAX_DEFAULT = 220  # cm
+    PESO_MIN_DEFAULT = 30     # kg
+    PESO_MAX_DEFAULT = 200    # kg
+    PRESION_SISTOLICA_MIN_DEFAULT = 80   # mmHg
+    PRESION_SISTOLICA_MAX_DEFAULT = 240  # mmHg
+    PRESION_DIASTOLICA_MIN_DEFAULT = 50  # mmHg
+    PRESION_DIASTOLICA_MAX_DEFAULT = 140 # mmHg
     DIAS_POR_ANIO = 365.25
     
-    def __init__(self, input_path: str, output_path: str):
+    def __init__(
+        self,
+        input_path: str,
+        output_path: str,
+        altura_min: int = ALTURA_MIN_DEFAULT,
+        altura_max: int = ALTURA_MAX_DEFAULT,
+        peso_min: int = PESO_MIN_DEFAULT,
+        peso_max: int = PESO_MAX_DEFAULT,
+        presion_sistolica_min: int = PRESION_SISTOLICA_MIN_DEFAULT,
+        presion_sistolica_max: int = PRESION_SISTOLICA_MAX_DEFAULT,
+        presion_diastolica_min: int = PRESION_DIASTOLICA_MIN_DEFAULT,
+        presion_diastolica_max: int = PRESION_DIASTOLICA_MAX_DEFAULT,
+        allow_equal_bp: bool = False,
+    ):
         """
         Inicializa el limpiador de datos.
         
         Args:
             input_path: Ruta del archivo CSV con datos crudos
             output_path: Ruta donde se guardará el archivo procesado
+            altura_min: Altura mínima aceptada (cm)
+            altura_max: Altura máxima aceptada (cm)
+            peso_min: Peso mínimo aceptado (kg)
+            peso_max: Peso máximo aceptado (kg)
+            presion_sistolica_min: Presión sistólica mínima aceptada (mmHg)
+            presion_sistolica_max: Presión sistólica máxima aceptada (mmHg)
+            presion_diastolica_min: Presión diastólica mínima aceptada (mmHg)
+            presion_diastolica_max: Presión diastólica máxima aceptada (mmHg)
+            allow_equal_bp: Si True permite ap_hi == ap_lo; si False exige ap_hi > ap_lo
         """
         self.input_path = input_path
         self.output_path = output_path
+        self.altura_min = altura_min
+        self.altura_max = altura_max
+        self.peso_min = peso_min
+        self.peso_max = peso_max
+        self.presion_sistolica_min = presion_sistolica_min
+        self.presion_sistolica_max = presion_sistolica_max
+        self.presion_diastolica_min = presion_diastolica_min
+        self.presion_diastolica_max = presion_diastolica_max
+        self.allow_equal_bp = allow_equal_bp
         self.df_original = None
         self.df_clean = None
         self.cleaning_report = {}
@@ -118,10 +149,10 @@ class DataCleaner:
             Tupla con (DataFrame filtrado, número de registros eliminados)
         """
         mask = (
-            (df['height'] >= self.ALTURA_MIN) & 
-            (df['height'] <= self.ALTURA_MAX) &
-            (df['weight'] >= self.PESO_MIN) & 
-            (df['weight'] <= self.PESO_MAX)
+            (df['height'] >= self.altura_min) & 
+            (df['height'] <= self.altura_max) &
+            (df['weight'] >= self.peso_min) & 
+            (df['weight'] <= self.peso_max)
         )
         n_eliminados = (~mask).sum()
         df_filtered = df[mask].copy()
@@ -145,9 +176,9 @@ class DataCleaner:
         Returns:
             Tupla con (DataFrame filtrado, número de registros eliminados)
         """
-        mask_rango_sistolica = (df['ap_hi'] >= self.PRESION_SISTOLICA_MIN) & (df['ap_hi'] <= self.PRESION_SISTOLICA_MAX)
-        mask_rango_diastolica = (df['ap_lo'] >= self.PRESION_DIASTOLICA_MIN) & (df['ap_lo'] <= self.PRESION_DIASTOLICA_MAX)
-        mask_logica = df['ap_hi'] > df['ap_lo']
+        mask_rango_sistolica = (df['ap_hi'] >= self.presion_sistolica_min) & (df['ap_hi'] <= self.presion_sistolica_max)
+        mask_rango_diastolica = (df['ap_lo'] >= self.presion_diastolica_min) & (df['ap_lo'] <= self.presion_diastolica_max)
+        mask_logica = df['ap_hi'] >= df['ap_lo'] if self.allow_equal_bp else df['ap_hi'] > df['ap_lo']
         
         mask_completa = mask_rango_sistolica & mask_rango_diastolica & mask_logica
         n_eliminados = (~mask_completa).sum()
@@ -284,6 +315,15 @@ def main():
         required=True,
         help='Ruta donde se guardará el archivo CSV procesado'
     )
+    parser.add_argument('--altura_min', type=int, default=DataCleaner.ALTURA_MIN_DEFAULT, help='Altura mínima válida (cm)')
+    parser.add_argument('--altura_max', type=int, default=DataCleaner.ALTURA_MAX_DEFAULT, help='Altura máxima válida (cm)')
+    parser.add_argument('--peso_min', type=int, default=DataCleaner.PESO_MIN_DEFAULT, help='Peso mínimo válido (kg)')
+    parser.add_argument('--peso_max', type=int, default=DataCleaner.PESO_MAX_DEFAULT, help='Peso máximo válido (kg)')
+    parser.add_argument('--ap_hi_min', type=int, default=DataCleaner.PRESION_SISTOLICA_MIN_DEFAULT, help='Presión sistólica mínima válida (mmHg)')
+    parser.add_argument('--ap_hi_max', type=int, default=DataCleaner.PRESION_SISTOLICA_MAX_DEFAULT, help='Presión sistólica máxima válida (mmHg)')
+    parser.add_argument('--ap_lo_min', type=int, default=DataCleaner.PRESION_DIASTOLICA_MIN_DEFAULT, help='Presión diastólica mínima válida (mmHg)')
+    parser.add_argument('--ap_lo_max', type=int, default=DataCleaner.PRESION_DIASTOLICA_MAX_DEFAULT, help='Presión diastólica máxima válida (mmHg)')
+    parser.add_argument('--allow_equal_bp', action='store_true', help='Permite registros con ap_hi == ap_lo')
     
     args = parser.parse_args()
     
@@ -293,7 +333,19 @@ def main():
         return
     
     # Ejecutar pipeline
-    cleaner = DataCleaner(args.input, args.output)
+    cleaner = DataCleaner(
+        input_path=args.input,
+        output_path=args.output,
+        altura_min=args.altura_min,
+        altura_max=args.altura_max,
+        peso_min=args.peso_min,
+        peso_max=args.peso_max,
+        presion_sistolica_min=args.ap_hi_min,
+        presion_sistolica_max=args.ap_hi_max,
+        presion_diastolica_min=args.ap_lo_min,
+        presion_diastolica_max=args.ap_lo_max,
+        allow_equal_bp=args.allow_equal_bp,
+    )
     cleaner.run_pipeline()
 
 
