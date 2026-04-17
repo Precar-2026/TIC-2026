@@ -1,7 +1,7 @@
 stages:
   limpieza_datos:
     cmd: python src/data/make_dataset.py --input data/raw/cardio_train.csv 
-      --output data/processed/cardio_clean.csv
+      --output data/processed/cardio_clean.csv --altura_min 140 --altura_max 210 --peso_min 35 --peso_max 180 --ap_hi_min 80 --ap_hi_max 240 --ap_lo_min 50 --ap_lo_max 140
     deps:
     - data/raw/cardio_train.csv
     - src/data/make_dataset.py
@@ -19,7 +19,7 @@ stages:
     - models/scaler.joblib
   train_random_forest:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model RF --models_dir models --trials 50 --reset_experiment
+      data/processed/model_inputs --model RF --models_dir models --trials 30 --reset_experiment
     deps:
     - data/processed/model_inputs
     - src/models/train_model.py
@@ -27,7 +27,7 @@ stages:
     - models/best_model_RF.joblib
   train_logistic_regression:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model LR --models_dir models --trials 50
+      data/processed/model_inputs --model LR --models_dir models --trials 30
     deps:
     - data/processed/model_inputs
     - src/models/train_model.py
@@ -36,7 +36,7 @@ stages:
     - models/best_model_LR.joblib
   train_xgboost:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model XGB --models_dir models --trials 50
+      data/processed/model_inputs --model XGB --models_dir models --trials 30
     deps:
     - data/processed/model_inputs
     - src/models/train_model.py
@@ -45,7 +45,7 @@ stages:
     - models/best_model_XGB.joblib
   train_lightgbm:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model LGBM --models_dir models --trials 50
+      data/processed/model_inputs --model LGBM --models_dir models --trials 30
     deps:
     - data/processed/model_inputs
     - src/models/train_model.py
