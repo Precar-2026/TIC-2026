@@ -112,7 +112,7 @@ class OptimizedModelTrainer:
         model_name: str,
         models_dir: str,
         n_trials: int = 30,
-        cv_folds: int = 10,
+        cv_folds: int = 5,
         tune_threshold: bool = True,
         drop_uncertain_cases: bool = False,
         uncertainty_quantile: float = 0.10,
@@ -642,7 +642,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cv_folds",
         type=int,
-        default=10,
+        default=5,
         help="Stratified K-Folds for CV",
     )
     parser.add_argument(
