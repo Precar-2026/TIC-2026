@@ -29,6 +29,8 @@ import joblib
 import numpy as np
 import optuna
 import pandas as pd
+from imblearn.over_sampling import SMOTE
+from imblearn.pipeline import Pipeline as ImbPipeline
 from lightgbm import LGBMClassifier
 from optuna.pruners import MedianPruner
 from optuna.samplers import TPESampler
@@ -116,6 +118,8 @@ class OptimizedModelTrainer:
         tune_threshold: bool = True,
         drop_uncertain_cases: bool = False,
         uncertainty_quantile: float = 0.10,
+        use_smote: bool = False,
+        smote_sampling_strategy: float = 1.0,
     ) -> None:
         self.input_dir = input_dir
         self.model_name = model_name.upper()
@@ -125,6 +129,8 @@ class OptimizedModelTrainer:
         self.tune_threshold = tune_threshold
         self.drop_uncertain_cases = drop_uncertain_cases
         self.uncertainty_quantile = uncertainty_quantile
+        self.use_smote = use_smote
+        self.smote_sampling_strategy = smote_sampling_strategy
 
         if self.model_name not in self.MODEL_NAMES:
             raise ValueError(f"Unsupported model '{self.model_name}'.")
@@ -156,7 +162,22 @@ class OptimizedModelTrainer:
             "uncertainty_quantile": self.uncertainty_quantile,
             "removed_uncertain_train_samples": 0,
             "uncertainty_threshold_train": None,
+            "use_smote": self.use_smote,
+            "smote_sampling_strategy": self.smote_sampling_strategy if self.use_smote else None,
         }
+
+    def _fit_model(self, model: Any, X: pd.DataFrame, y: np.ndarray) -> Any:
+        if not self.use_smote:
+            model.fit(X, y)
+            return model
+
+        smote = SMOTE(
+            sampling_strategy=self.smote_sampling_strategy,
+            random_state=self.RANDOM_STATE,
+        )
+        X_res, y_res = smote.fit_resample(X, y)
+        model.fit(X_res, y_res)
+        return model
 
     def _drop_uncertain_training_cases(self) -> None:
         assert self.best_model is not None
@@ -323,8 +344,23 @@ class OptimizedModelTrainer:
 
         cv = StratifiedKFold(n_splits=self.cv_folds, shuffle=True, random_state=self.RANDOM_STATE)
 
+        estimator: Any = model
+        if self.use_smote:
+            estimator = ImbPipeline(
+                steps=[
+                    (
+                        "smote",
+                        SMOTE(
+                            sampling_strategy=self.smote_sampling_strategy,
+                            random_state=self.RANDOM_STATE,
+                        ),
+                    ),
+                    ("model", model),
+                ]
+            )
+
         cv_result = cross_validate(
-            model,
+            estimator,
             self.X_train,
             self.y_train,
             cv=cv,
@@ -350,6 +386,8 @@ class OptimizedModelTrainer:
     def optimize_hyperparameters(self) -> None:
         logger.info("Starting optimization for %s", self.model_full_name)
         logger.info("Trials: %s | CV folds: %s", self.n_trials, self.cv_folds)
+        if self.use_smote:
+            logger.info("SMOTE habilitado con sampling_strategy=%.3f", self.smote_sampling_strategy)
 
         sampler = TPESampler(seed=self.RANDOM_STATE)
         pruner = MedianPruner(n_startup_trials=max(8, self.n_trials // 6), n_warmup_steps=0)
@@ -391,7 +429,7 @@ class OptimizedModelTrainer:
 
         logger.info("Training final model with best parameters.")
         self.best_model = self.create_model(self.best_params)
-        self.best_model.fit(self.X_train, self.y_train)
+        self.best_model = self._fit_model(self.best_model, self.X_train, self.y_train)
 
         if self.drop_uncertain_cases:
             logger.warning(
@@ -404,7 +442,7 @@ class OptimizedModelTrainer:
             logger.info("Uncertain-case removal is enabled for training data.")
             self._drop_uncertain_training_cases()
             self.best_model = self.create_model(self.best_params)
-            self.best_model.fit(self.X_train, self.y_train)
+            self.best_model = self._fit_model(self.best_model, self.X_train, self.y_train)
 
         if hasattr(self.best_model, "predict_proba"):
             y_train_proba = self.best_model.predict_proba(self.X_train)[:, 1]
@@ -666,6 +704,17 @@ def parse_args() -> argparse.Namespace:
         default=0.10,
         help="Quantile of most uncertain training rows to remove (default: 0.10)",
     )
+    parser.add_argument(
+        "--use_smote",
+        action="store_true",
+        help="Enable SMOTE only on training folds/data",
+    )
+    parser.add_argument(
+        "--smote_sampling_strategy",
+        type=float,
+        default=1.0,
+        help="SMOTE sampling strategy (0,1]; 1.0 balances minority to majority",
+    )
     return parser.parse_args()
 
 
@@ -689,6 +738,8 @@ def main() -> None:
 
     if not 0.0 <= args.uncertainty_quantile < 1.0:
         raise ValueError("--uncertainty_quantile must be in [0.0, 1.0).")
+    if not 0.0 < args.smote_sampling_strategy <= 1.0:
+        raise ValueError("--smote_sampling_strategy must be in (0.0, 1.0].")
 
     trainer = OptimizedModelTrainer(
         input_dir=args.input_dir,
@@ -699,6 +750,8 @@ def main() -> None:
         tune_threshold=not args.no_threshold_tuning,
         drop_uncertain_cases=args.drop_uncertain_cases,
         uncertainty_quantile=args.uncertainty_quantile,
+        use_smote=args.use_smote,
+        smote_sampling_strategy=args.smote_sampling_strategy,
     )
     trainer.run_pipeline()
 
