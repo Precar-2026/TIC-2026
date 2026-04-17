@@ -42,7 +42,7 @@ stages:
       size: 1591
   train_random_forest:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model RF --models_dir models --trials 30 
+      data/processed/model_inputs --model RF --models_dir models --trials 50 
       --reset_experiment
     deps:
     - path: data/processed/model_inputs
@@ -57,11 +57,11 @@ stages:
     outs:
     - path: models/best_model_RF.joblib
       hash: md5
-      md5: dcb1df4aee13772cf63e38729b4a5200
-      size: 7081753
+      md5: 0e85cde0508e5364637d914c927829da
+      size: 4003833
   train_logistic_regression:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model LR --models_dir models --trials 30
+      data/processed/model_inputs --model LR --models_dir models --trials 50
     deps:
     - path: data/processed/model_inputs
       hash: md5
@@ -70,8 +70,8 @@ stages:
       nfiles: 6
     - path: models/best_model_RF.joblib
       hash: md5
-      md5: dcb1df4aee13772cf63e38729b4a5200
-      size: 7081753
+      md5: 0e85cde0508e5364637d914c927829da
+      size: 4003833
     - path: src/models/train_model.py
       hash: md5
       md5: 37bcce589f7fab9e8324de7d29ad273f
@@ -83,7 +83,7 @@ stages:
       size: 1711
   train_lightgbm:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model LGBM --models_dir models --trials 30
+      data/processed/model_inputs --model LGBM --models_dir models --trials 50
     deps:
     - path: data/processed/model_inputs
       hash: md5
@@ -105,7 +105,7 @@ stages:
       size: 3165892
   train_xgboost:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model XGB --models_dir models --trials 30
+      data/processed/model_inputs --model XGB --models_dir models --trials 50
     deps:
     - path: data/processed/model_inputs
       hash: md5
