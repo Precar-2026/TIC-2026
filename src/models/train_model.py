@@ -142,6 +142,8 @@ class OptimizedModelTrainer:
         self.y_train: np.ndarray | None = None
         self.X_val: pd.DataFrame | None = None
         self.y_val: np.ndarray | None = None
+        self.X_test_snapshot: pd.DataFrame | None = None
+        self.y_test_snapshot: np.ndarray | None = None
 
         self.best_params: Dict[str, Any] | None = None
         self.study: optuna.Study | None = None
@@ -221,6 +223,17 @@ class OptimizedModelTrainer:
         self.y_train = pd.read_csv(os.path.join(self.input_dir, "y_train.csv")).values.ravel()
         self.X_val = pd.read_csv(os.path.join(self.input_dir, "X_val.csv"))
         self.y_val = pd.read_csv(os.path.join(self.input_dir, "y_val.csv")).values.ravel()
+
+        test_x_path = os.path.join(self.input_dir, "X_test.csv")
+        test_y_path = os.path.join(self.input_dir, "y_test.csv")
+        if os.path.exists(test_x_path) and os.path.exists(test_y_path):
+            self.X_test_snapshot = pd.read_csv(test_x_path)
+            self.y_test_snapshot = pd.read_csv(test_y_path).values.ravel()
+            logger.info(
+                "Test snapshot detected: %s rows, %s features",
+                self.X_test_snapshot.shape[0],
+                self.X_test_snapshot.shape[1],
+            )
 
         total = self.X_train.shape[0] + self.X_val.shape[0]
         logger.info(
@@ -623,6 +636,15 @@ class OptimizedModelTrainer:
             os.path.join(artifacts_dir, f"problematic_validation_samples_{self.model_name}.csv"),
             index=False,
         )
+
+        if self.X_test_snapshot is not None and self.y_test_snapshot is not None:
+            snapshot_dir = os.path.join(artifacts_dir, "model_inputs_snapshot")
+            os.makedirs(snapshot_dir, exist_ok=True)
+            self.X_test_snapshot.to_csv(os.path.join(snapshot_dir, "X_test.csv"), index=False)
+            pd.DataFrame({"cardio": self.y_test_snapshot}).to_csv(
+                os.path.join(snapshot_dir, "y_test.csv"),
+                index=False,
+            )
 
         logger.info("Training artifacts saved at %s", artifacts_dir)
 
