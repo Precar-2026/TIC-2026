@@ -1,7 +1,7 @@
 stages:
   limpieza_datos:
     cmd: python src/data/make_dataset.py --input data/raw/cardio_train.csv 
-      --output data/processed/cardio_clean.csv --altura_min 140 --altura_max 210 --peso_min 35 --peso_max 180 --ap_hi_min 80 --ap_hi_max 240 --ap_lo_min 50 --ap_lo_max 140
+      --output data/processed/cardio_clean.csv --altura_min 130 --altura_max 220 --peso_min 30 --peso_max 200 --ap_hi_min 80 --ap_hi_max 240 --ap_lo_min 50 --ap_lo_max 140
     deps:
     - data/raw/cardio_train.csv
     - src/data/make_dataset.py
