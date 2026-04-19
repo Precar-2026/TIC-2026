@@ -21,6 +21,7 @@ import logging
 import os
 import re
 import shutil
+import time
 import warnings
 from dataclasses import dataclass
 from typing import Any, Dict, Tuple
@@ -151,6 +152,12 @@ class OptimizedModelTrainer:
         self.best_cv_score: float | None = None
         self.best_threshold: float = 0.5
         self.val_metrics: Dict[str, float] = {}
+        self.optuna_total_search_seconds: float | None = None
+        self.best_trial_number: int | None = None
+        self.best_trial_duration_seconds: float | None = None
+        self.best_params_fit_seconds: float | None = None
+        self.best_params_eval_seconds: float | None = None
+        self.best_params_train_eval_total_seconds: float | None = None
 
         self.y_val_pred: np.ndarray | None = None
         self.y_val_pred_proba: np.ndarray | None = None
@@ -412,13 +419,23 @@ class OptimizedModelTrainer:
             study_name=f"{self.model_name}_optimized_v2",
         )
 
+        search_start = time.perf_counter()
         self.study.optimize(self.objective, n_trials=self.n_trials, show_progress_bar=False)
+        self.optuna_total_search_seconds = float(time.perf_counter() - search_start)
 
         self.best_params = self.study.best_params
         self.best_cv_score = float(self.study.best_value)
+        best_trial = self.study.best_trial
+        self.best_trial_number = int(best_trial.number)
+        if best_trial.duration is not None:
+            self.best_trial_duration_seconds = float(best_trial.duration.total_seconds())
 
         logger.info("Optimization finished.")
         logger.info("Best composite CV score: %.6f", self.best_cv_score)
+        logger.info("Optimization total time: %.3f seconds", self.optuna_total_search_seconds)
+        logger.info("Best trial number: %s", self.best_trial_number)
+        if self.best_trial_duration_seconds is not None:
+            logger.info("Best trial duration: %.3f seconds", self.best_trial_duration_seconds)
         logger.info("Best params: %s", self.best_params)
 
     def _find_best_threshold(self, y_true: np.ndarray, y_prob: np.ndarray) -> float:
@@ -441,8 +458,11 @@ class OptimizedModelTrainer:
         assert self.best_params is not None
 
         logger.info("Training final model with best parameters.")
+        train_eval_start = time.perf_counter()
         self.best_model = self.create_model(self.best_params)
+        fit_start = time.perf_counter()
         self.best_model = self._fit_model(self.best_model, self.X_train, self.y_train)
+        self.best_params_fit_seconds = float(time.perf_counter() - fit_start)
 
         if self.drop_uncertain_cases:
             logger.warning(
@@ -455,8 +475,11 @@ class OptimizedModelTrainer:
             logger.info("Uncertain-case removal is enabled for training data.")
             self._drop_uncertain_training_cases()
             self.best_model = self.create_model(self.best_params)
+            fit_start = time.perf_counter()
             self.best_model = self._fit_model(self.best_model, self.X_train, self.y_train)
+            self.best_params_fit_seconds = float(time.perf_counter() - fit_start)
 
+        eval_start = time.perf_counter()
         if hasattr(self.best_model, "predict_proba"):
             y_train_proba = self.best_model.predict_proba(self.X_train)[:, 1]
             y_val_proba = self.best_model.predict_proba(self.X_val)[:, 1]
@@ -491,6 +514,8 @@ class OptimizedModelTrainer:
             "val_mcc": matthews_corrcoef(self.y_val, y_val_pred),
             "best_threshold": self.best_threshold,
         }
+        self.best_params_eval_seconds = float(time.perf_counter() - eval_start)
+        self.best_params_train_eval_total_seconds = float(time.perf_counter() - train_eval_start)
 
     def _overfit_diagnostics(self) -> Dict[str, Any]:
         assert self.y_train is not None and self.y_val is not None
@@ -581,7 +606,14 @@ class OptimizedModelTrainer:
         metrics_payload = {
             "model": self.model_name,
             "model_full_name": self.model_full_name,
+            "cv_folds": self.cv_folds,
             "best_cv_composite_score": self.best_cv_score,
+            "optuna_total_search_seconds": self.optuna_total_search_seconds,
+            "best_trial_number": self.best_trial_number,
+            "best_trial_duration_seconds": self.best_trial_duration_seconds,
+            "best_params_fit_seconds": self.best_params_fit_seconds,
+            "best_params_eval_seconds": self.best_params_eval_seconds,
+            "best_params_train_eval_total_seconds": self.best_params_train_eval_total_seconds,
             **self.val_metrics,
             **self.cleaning_info,
         }
@@ -659,6 +691,14 @@ class OptimizedModelTrainer:
         logger.info("Validation roc_auc: %.4f", self.val_metrics["val_roc_auc"])
         logger.info("Validation mcc: %.4f", self.val_metrics["val_mcc"])
         logger.info("Best threshold: %.3f", self.val_metrics["best_threshold"])
+        if self.optuna_total_search_seconds is not None:
+            logger.info("Optuna total search time (s): %.3f", self.optuna_total_search_seconds)
+        if self.best_trial_number is not None:
+            logger.info("Best trial number: %s", self.best_trial_number)
+        if self.best_trial_duration_seconds is not None:
+            logger.info("Best trial duration (s): %.3f", self.best_trial_duration_seconds)
+        if self.best_params_fit_seconds is not None:
+            logger.info("Final fit time with best params (s): %.3f", self.best_params_fit_seconds)
         logger.info("Best params: %s", self.best_params)
         logger.info("=" * 80)
 
