@@ -10,7 +10,7 @@ stages:
   ingenieria_caracteristicas:
     cmd: python src/features/build_features.py --input 
       data/processed/cardio_clean.csv --output_dir data/processed/model_inputs 
-      --scaler_path models/scaler.joblib --drop_feature NONE
+      --scaler_path models/scaler.joblib --disable_advanced_features --scaler_type robust
     deps:
     - data/processed/cardio_clean.csv
     - src/features/build_features.py
