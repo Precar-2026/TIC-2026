@@ -10,7 +10,7 @@ stages:
   ingenieria_caracteristicas:
     cmd: python src/features/build_features.py --input 
       data/processed/cardio_clean.csv --output_dir data/processed/model_inputs 
-      --scaler_path models/scaler.joblib --scaler_type robust --drop_features edad_squared,imc_squared,log_ap_hi,col_gluc_ratio
+      --scaler_path models/scaler.joblib
     deps:
     - data/processed/cardio_clean.csv
     - src/features/build_features.py
@@ -19,7 +19,7 @@ stages:
     - models/scaler.joblib
   train_random_forest:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model RF --models_dir models --trials 5 --reset_experiment
+      data/processed/model_inputs --model RF --models_dir models --trials 10 --reset_experiment
     deps:
     - data/processed/model_inputs
     - src/models/train_model.py
@@ -27,7 +27,7 @@ stages:
     - models/best_model_RF.joblib
   train_logistic_regression:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model LR --models_dir models --trials 5
+      data/processed/model_inputs --model LR --models_dir models --trials 10
     deps:
     - data/processed/model_inputs
     - src/models/train_model.py
@@ -36,7 +36,7 @@ stages:
     - models/best_model_LR.joblib
   train_xgboost:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model XGB --models_dir models --trials 5
+      data/processed/model_inputs --model XGB --models_dir models --trials 10
     deps:
     - data/processed/model_inputs
     - src/models/train_model.py
@@ -45,7 +45,7 @@ stages:
     - models/best_model_XGB.joblib
   train_lightgbm:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model LGBM --models_dir models --trials 5
+      data/processed/model_inputs --model LGBM --models_dir models --trials 10
     deps:
     - data/processed/model_inputs
     - src/models/train_model.py
