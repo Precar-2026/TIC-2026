@@ -59,6 +59,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _str_to_bool(value: str | bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "t", "yes", "y", "si", "s"}:
+        return True
+    if normalized in {"0", "false", "f", "no", "n"}:
+        return False
+    raise argparse.ArgumentTypeError(f"Invalid boolean value: {value}")
+
+
 @dataclass
 class ObjectiveWeights:
     roc_auc: float = 0.70
@@ -115,7 +126,7 @@ class OptimizedModelTrainer:
         model_name: str,
         models_dir: str,
         n_trials: int = 30,
-        cv_folds: int = 10,
+        cv_folds: int = 5,
         tune_threshold: bool = True,
         drop_uncertain_cases: bool = False,
         uncertainty_quantile: float = 0.10,
@@ -180,13 +191,41 @@ class OptimizedModelTrainer:
             model.fit(X, y)
             return model
 
+        strategy = self._resolve_smote_sampling_strategy(y)
         smote = SMOTE(
-            sampling_strategy=self.smote_sampling_strategy,
+            sampling_strategy=strategy,
             random_state=self.RANDOM_STATE,
         )
         X_res, y_res = smote.fit_resample(X, y)
         model.fit(X_res, y_res)
         return model
+
+    def _resolve_smote_sampling_strategy(self, y: np.ndarray) -> float | str:
+        y_arr = np.asarray(y)
+        classes, counts = np.unique(y_arr, return_counts=True)
+
+        if classes.size != 2:
+            logger.warning(
+                "SMOTE fallback a 'auto': la tarea no es binaria o no tiene dos clases en el subset actual."
+            )
+            return "auto"
+
+        minority = int(counts.min())
+        majority = int(counts.max())
+        current_ratio = minority / majority if majority > 0 else 0.0
+        desired_ratio = float(self.smote_sampling_strategy)
+
+        # SMOTE no puede reducir minoría; si la razón deseada es <= razón actual, usar auto.
+        if desired_ratio <= current_ratio + 1e-6:
+            logger.warning(
+                "SMOTE sampling_strategy=%.3f incompatible con ratio actual=%.3f. "
+                "Se usará sampling_strategy='auto'.",
+                desired_ratio,
+                current_ratio,
+            )
+            return "auto"
+
+        return desired_ratio
 
     def _drop_uncertain_training_cases(self) -> None:
         assert self.best_model is not None
@@ -366,12 +405,13 @@ class OptimizedModelTrainer:
 
         estimator: Any = model
         if self.use_smote:
+            strategy = self._resolve_smote_sampling_strategy(self.y_train)
             estimator = ImbPipeline(
                 steps=[
                     (
                         "smote",
                         SMOTE(
-                            sampling_strategy=self.smote_sampling_strategy,
+                            sampling_strategy=strategy,
                             random_state=self.RANDOM_STATE,
                         ),
                     ),
@@ -379,16 +419,50 @@ class OptimizedModelTrainer:
                 ]
             )
 
-        cv_result = cross_validate(
-            estimator,
-            self.X_train,
-            self.y_train,
-            cv=cv,
-            scoring={"roc_auc": "roc_auc", "f1": "f1"},
-            return_train_score=True,
-            n_jobs=-1,
-            error_score="raise",
-        )
+        try:
+            cv_result = cross_validate(
+                estimator,
+                self.X_train,
+                self.y_train,
+                cv=cv,
+                scoring={"roc_auc": "roc_auc", "f1": "f1"},
+                return_train_score=True,
+                n_jobs=-1,
+                error_score="raise",
+            )
+        except ValueError as exc:
+            msg = str(exc).lower()
+            ratio_error = "required to remove samples from the minority class" in msg
+            if self.use_smote and ratio_error:
+                logger.warning(
+                    "SMOTE falló en algunos folds con sampling_strategy=%.3f. "
+                    "Reintentando CV con sampling_strategy='auto'.",
+                    self.smote_sampling_strategy,
+                )
+                estimator = ImbPipeline(
+                    steps=[
+                        (
+                            "smote",
+                            SMOTE(
+                                sampling_strategy="auto",
+                                random_state=self.RANDOM_STATE,
+                            ),
+                        ),
+                        ("model", model),
+                    ]
+                )
+                cv_result = cross_validate(
+                    estimator,
+                    self.X_train,
+                    self.y_train,
+                    cv=cv,
+                    scoring={"roc_auc": "roc_auc", "f1": "f1"},
+                    return_train_score=True,
+                    n_jobs=-1,
+                    error_score="raise",
+                )
+            else:
+                raise
 
         score, diagnostics = self._cv_objective_score(cv_result)
         trial.set_user_attr("cv_auc", diagnostics["cv_auc"])
@@ -742,7 +816,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cv_folds",
         type=int,
-        default=10,
+        default=5,
         help="Stratified K-Folds for CV",
     )
     parser.add_argument(
@@ -768,8 +842,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--use_smote",
-        action="store_true",
-        help="Enable SMOTE only on training folds/data",
+        nargs="?",
+        const=True,
+        default=False,
+        type=_str_to_bool,
+        metavar="BOOL",
+        help="Enable SMOTE only on training folds/data. Supports: --use_smote or --use_smote true/false",
     )
     parser.add_argument(
         "--smote_sampling_strategy",

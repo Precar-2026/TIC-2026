@@ -19,7 +19,7 @@ stages:
     - models/scaler.joblib
   train_random_forest:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model RF --models_dir models --trials 30 --reset_experiment
+      data/processed/model_inputs --model RF --models_dir models --trials 10 --use_smote true --smote_sampling_strategy 1.0 --reset_experiment
     deps:
     - data/processed/model_inputs
     - src/models/train_model.py
@@ -27,7 +27,7 @@ stages:
     - models/best_model_RF.joblib
   train_logistic_regression:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model LR --models_dir models --trials 30
+      data/processed/model_inputs --model LR --models_dir models --trials 10 --use_smote true --smote_sampling_strategy 1.0
     deps:
     - data/processed/model_inputs
     - src/models/train_model.py
@@ -36,7 +36,7 @@ stages:
     - models/best_model_LR.joblib
   train_xgboost:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model XGB --models_dir models --trials 30
+      data/processed/model_inputs --model XGB --models_dir models --trials 10 --use_smote true --smote_sampling_strategy 1.0
     deps:
     - data/processed/model_inputs
     - src/models/train_model.py
@@ -45,7 +45,7 @@ stages:
     - models/best_model_XGB.joblib
   train_lightgbm:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model LGBM --models_dir models --trials 30
+      data/processed/model_inputs --model LGBM --models_dir models --trials 10 --use_smote true --smote_sampling_strategy 1.0
     deps:
     - data/processed/model_inputs
     - src/models/train_model.py
