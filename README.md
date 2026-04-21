@@ -426,6 +426,10 @@ python src/models/train_model.py \
 | `--models_dir` | Directorio para guardar modelos | `models/` |
 | `--trials` | Número de trials Optuna | 100 |
 | `--reset_experiment` | Reiniciar número de experimento | False |
+| `--resampling_method` | Balanceo de clases: `none`, `smote`, `undersample` | `none` |
+| `--undersample_sampling_strategy` | Ratio final en undersampling (minoría/mayoría) | `1.0` |
+
+Compatibilidad: `--use_smote` sigue disponible como alias legacy y tiene prioridad si se activa.
 
 ---
 

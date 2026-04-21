@@ -46,9 +46,8 @@ stages:
   train_random_forest:
     cmd: python src/models/train_model.py --input_dir 
       data/processed/model_inputs --model RF --models_dir models --cv_folds 5 
-      --trials 30 --pruner_warmup_steps 2 --pruner_patience_steps 3 
-      --pruner_min_delta 0.0005 --use_smote true --smote_sampling_strategy 1.0 
-      --reset_experiment
+      --trials 10 --resampling_method undersample 
+      --undersample_sampling_strategy 1.0 --reset_experiment
     deps:
     - path: data/processed/model_inputs
       hash: md5
@@ -57,18 +56,18 @@ stages:
       nfiles: 6
     - path: src/models/train_model.py
       hash: md5
-      md5: f0f1b6b9d7c9ad85665104c643a86b01
-      size: 41870
+      md5: 56e7613d7dae9d649199f94829cc447c
+      size: 42042
     outs:
     - path: models/best_model_RF.joblib
       hash: md5
-      md5: e5a9b27c67026f6946083bab46c9e07d
-      size: 4208249
+      md5: 63fb1c49ae0503ad6d4e21aed09cfa1a
+      size: 4225369
   train_logistic_regression:
     cmd: python src/models/train_model.py --input_dir 
       data/processed/model_inputs --model LR --models_dir models --cv_folds 5 
-      --trials 30 --pruner_warmup_steps 2 --pruner_patience_steps 3 
-      --pruner_min_delta 0.0005 --use_smote true --smote_sampling_strategy 1.0
+      --trials 10 --resampling_method undersample 
+      --undersample_sampling_strategy 1.0
     deps:
     - path: data/processed/model_inputs
       hash: md5
@@ -77,22 +76,22 @@ stages:
       nfiles: 6
     - path: models/best_model_RF.joblib
       hash: md5
-      md5: e5a9b27c67026f6946083bab46c9e07d
-      size: 4208249
+      md5: 63fb1c49ae0503ad6d4e21aed09cfa1a
+      size: 4225369
     - path: src/models/train_model.py
       hash: md5
-      md5: f0f1b6b9d7c9ad85665104c643a86b01
-      size: 41870
+      md5: 56e7613d7dae9d649199f94829cc447c
+      size: 42042
     outs:
     - path: models/best_model_LR.joblib
       hash: md5
-      md5: 0a319971547a6b8e2f1acc350a85e811
+      md5: d0311378dec02e781fc39709a723159b
       size: 1631
   train_lightgbm:
     cmd: python src/models/train_model.py --input_dir 
       data/processed/model_inputs --model LGBM --models_dir models --cv_folds 5 
-      --trials 30 --pruner_warmup_steps 2 --pruner_patience_steps 3 
-      --pruner_min_delta 0.0005 --use_smote true --smote_sampling_strategy 1.0
+      --trials 10 --resampling_method undersample 
+      --undersample_sampling_strategy 1.0
     deps:
     - path: data/processed/model_inputs
       hash: md5
@@ -101,22 +100,22 @@ stages:
       nfiles: 6
     - path: models/best_model_XGB.joblib
       hash: md5
-      md5: ac40af934c7ec9af2deba26388fbffe8
-      size: 2006291
+      md5: c5a09e1c1a73ed40d4830f00ab4ee618
+      size: 1991319
     - path: src/models/train_model.py
       hash: md5
-      md5: f0f1b6b9d7c9ad85665104c643a86b01
-      size: 41870
+      md5: 56e7613d7dae9d649199f94829cc447c
+      size: 42042
     outs:
     - path: models/best_model_LGBM.joblib
       hash: md5
-      md5: 6db18f7a7a53363d48af566ebc550c4d
-      size: 3157156
+      md5: 0f300c6476d21de7a0511d2a69b107f7
+      size: 4039844
   train_xgboost:
     cmd: python src/models/train_model.py --input_dir 
       data/processed/model_inputs --model XGB --models_dir models --cv_folds 5 
-      --trials 30 --pruner_warmup_steps 2 --pruner_patience_steps 3 
-      --pruner_min_delta 0.0005 --use_smote true --smote_sampling_strategy 1.0
+      --trials 10 --resampling_method undersample 
+      --undersample_sampling_strategy 1.0
     deps:
     - path: data/processed/model_inputs
       hash: md5
@@ -125,14 +124,14 @@ stages:
       nfiles: 6
     - path: models/best_model_LR.joblib
       hash: md5
-      md5: 0a319971547a6b8e2f1acc350a85e811
+      md5: d0311378dec02e781fc39709a723159b
       size: 1631
     - path: src/models/train_model.py
       hash: md5
-      md5: f0f1b6b9d7c9ad85665104c643a86b01
-      size: 41870
+      md5: 56e7613d7dae9d649199f94829cc447c
+      size: 42042
     outs:
     - path: models/best_model_XGB.joblib
       hash: md5
-      md5: ac40af934c7ec9af2deba26388fbffe8
-      size: 2006291
+      md5: c5a09e1c1a73ed40d4830f00ab4ee618
+      size: 1991319

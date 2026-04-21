@@ -31,11 +31,11 @@ import numpy as np
 import optuna
 import pandas as pd
 from imblearn.over_sampling import SMOTE
+from imblearn.under_sampling import RandomUnderSampler
 from imblearn.pipeline import Pipeline as ImbPipeline
 from lightgbm import LGBMClassifier
 from optuna.pruners import MedianPruner
 from optuna.samplers import TPESampler
-from sklearn.base import clone
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
@@ -46,13 +46,8 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import StratifiedKFold, cross_validate
 from xgboost import XGBClassifier
-
-try:
-    from optuna.pruners import PatientPruner
-except ImportError:
-    PatientPruner = None
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -138,10 +133,8 @@ class OptimizedModelTrainer:
         uncertainty_quantile: float = 0.10,
         use_smote: bool = False,
         smote_sampling_strategy: float = 1.0,
-        pruner_startup_trials: int | None = None,
-        pruner_warmup_steps: int = 1,
-        pruner_patience_steps: int = 2,
-        pruner_min_delta: float = 1e-4,
+        resampling_method: str = "none",
+        undersample_sampling_strategy: float = 1.0,
     ) -> None:
         self.input_dir = input_dir
         self.model_name = model_name.upper()
@@ -151,12 +144,23 @@ class OptimizedModelTrainer:
         self.tune_threshold = tune_threshold
         self.drop_uncertain_cases = drop_uncertain_cases
         self.uncertainty_quantile = uncertainty_quantile
-        self.use_smote = use_smote
+        requested_method = str(resampling_method).strip().lower()
+        if requested_method not in {"none", "smote", "undersample"}:
+            raise ValueError(
+                "resampling_method must be one of: 'none', 'smote', 'undersample'."
+            )
+
+        if use_smote and requested_method not in {"none", "smote"}:
+            logger.warning(
+                "Se recibió --use_smote junto con --resampling_method=%s. "
+                "Por compatibilidad se usará SMOTE.",
+                requested_method,
+            )
+
+        self.resampling_method = "smote" if use_smote else requested_method
+        self.use_smote = self.resampling_method == "smote"
         self.smote_sampling_strategy = smote_sampling_strategy
-        self.pruner_startup_trials = pruner_startup_trials
-        self.pruner_warmup_steps = pruner_warmup_steps
-        self.pruner_patience_steps = pruner_patience_steps
-        self.pruner_min_delta = pruner_min_delta
+        self.undersample_sampling_strategy = undersample_sampling_strategy
 
         if self.model_name not in self.MODEL_NAMES:
             raise ValueError(f"Unsupported model '{self.model_name}'.")
@@ -198,19 +202,62 @@ class OptimizedModelTrainer:
             "uncertainty_threshold_train": None,
             "use_smote": self.use_smote,
             "smote_sampling_strategy": self.smote_sampling_strategy if self.use_smote else None,
+            "resampling_method": self.resampling_method,
+            "undersample_sampling_strategy": (
+                self.undersample_sampling_strategy
+                if self.resampling_method == "undersample"
+                else None
+            ),
         }
 
+    def _build_resampler(self, y: np.ndarray, force_auto_strategy: bool = False) -> Any | None:
+        if self.resampling_method == "none":
+            return None
+
+        if self.resampling_method == "smote":
+            strategy: float | str
+            if force_auto_strategy:
+                strategy = "auto"
+            else:
+                strategy = self._resolve_smote_sampling_strategy(y)
+            return SMOTE(sampling_strategy=strategy, random_state=self.RANDOM_STATE)
+
+        if self.resampling_method == "undersample":
+            strategy = "auto" if force_auto_strategy else self._resolve_undersample_sampling_strategy(y)
+            return RandomUnderSampler(sampling_strategy=strategy, random_state=self.RANDOM_STATE)
+
+        raise ValueError(f"Unsupported resampling method: {self.resampling_method}")
+
+    @staticmethod
+    def _is_sampling_ratio_error(exc: ValueError) -> bool:
+        msg = str(exc).lower()
+        return (
+            "sampling_strategy" in msg
+            or "remove samples from the minority class" in msg
+            or "increase the number of samples in the majority class" in msg
+            or "required to generate new sample in the majority class" in msg
+        )
+
     def _fit_model(self, model: Any, X: pd.DataFrame, y: np.ndarray) -> Any:
-        if not self.use_smote:
+        resampler = self._build_resampler(y)
+        if resampler is None:
             model.fit(X, y)
             return model
 
-        strategy = self._resolve_smote_sampling_strategy(y)
-        smote = SMOTE(
-            sampling_strategy=strategy,
-            random_state=self.RANDOM_STATE,
-        )
-        X_res, y_res = smote.fit_resample(X, y)
+        try:
+            X_res, y_res = resampler.fit_resample(X, y)
+        except ValueError as exc:
+            if self._is_sampling_ratio_error(exc):
+                logger.warning(
+                    "%s falló con la estrategia configurada. Reintentando con sampling_strategy='auto'.",
+                    self.resampling_method,
+                )
+                resampler = self._build_resampler(y, force_auto_strategy=True)
+                assert resampler is not None
+                X_res, y_res = resampler.fit_resample(X, y)
+            else:
+                raise
+
         model.fit(X_res, y_res)
         return model
 
@@ -233,6 +280,33 @@ class OptimizedModelTrainer:
         if desired_ratio <= current_ratio + 1e-6:
             logger.warning(
                 "SMOTE sampling_strategy=%.3f incompatible con ratio actual=%.3f. "
+                "Se usará sampling_strategy='auto'.",
+                desired_ratio,
+                current_ratio,
+            )
+            return "auto"
+
+        return desired_ratio
+
+    def _resolve_undersample_sampling_strategy(self, y: np.ndarray) -> float | str:
+        y_arr = np.asarray(y)
+        classes, counts = np.unique(y_arr, return_counts=True)
+
+        if classes.size != 2:
+            logger.warning(
+                "Undersample fallback a 'auto': la tarea no es binaria o no tiene dos clases en el subset actual."
+            )
+            return "auto"
+
+        minority = int(counts.min())
+        majority = int(counts.max())
+        current_ratio = minority / majority if majority > 0 else 0.0
+        desired_ratio = float(self.undersample_sampling_strategy)
+
+        # RandomUnderSampler no puede aumentar la clase mayoritaria.
+        if desired_ratio < current_ratio - 1e-6:
+            logger.warning(
+                "Undersample sampling_strategy=%.3f incompatible con ratio actual=%.3f. "
                 "Se usará sampling_strategy='auto'.",
                 desired_ratio,
                 current_ratio,
@@ -418,136 +492,81 @@ class OptimizedModelTrainer:
         cv = StratifiedKFold(n_splits=self.cv_folds, shuffle=True, random_state=self.RANDOM_STATE)
 
         estimator: Any = model
-        if self.use_smote:
-            strategy = self._resolve_smote_sampling_strategy(self.y_train)
+        if self.resampling_method != "none":
+            resampler = self._build_resampler(self.y_train)
+            assert resampler is not None
             estimator = ImbPipeline(
                 steps=[
-                    (
-                        "smote",
-                        SMOTE(
-                            sampling_strategy=strategy,
-                            random_state=self.RANDOM_STATE,
-                        ),
-                    ),
+                    ("resampler", resampler),
                     ("model", model),
                 ]
             )
 
-        cv_auc_scores: list[float] = []
-        cv_f1_scores: list[float] = []
-        train_auc_scores: list[float] = []
-
-        for fold_idx, (train_idx, val_idx) in enumerate(cv.split(self.X_train, self.y_train), start=1):
-            X_fold_train = self.X_train.iloc[train_idx]
-            y_fold_train = self.y_train[train_idx]
-            X_fold_val = self.X_train.iloc[val_idx]
-            y_fold_val = self.y_train[val_idx]
-
-            fold_estimator = clone(estimator)
-
-            try:
-                fold_estimator.fit(X_fold_train, y_fold_train)
-            except ValueError as exc:
-                msg = str(exc).lower()
-                ratio_error = "required to remove samples from the minority class" in msg
-                if self.use_smote and ratio_error:
-                    logger.warning(
-                        "SMOTE falló en fold %s con sampling_strategy=%.3f. "
-                        "Reintentando fold con sampling_strategy='auto'.",
-                        fold_idx,
-                        self.smote_sampling_strategy,
-                    )
-                    fold_estimator = ImbPipeline(
-                        steps=[
-                            (
-                                "smote",
-                                SMOTE(
-                                    sampling_strategy="auto",
-                                    random_state=self.RANDOM_STATE,
-                                ),
-                            ),
-                            ("model", self.create_model(params)),
-                        ]
-                    )
-                    fold_estimator.fit(X_fold_train, y_fold_train)
-                else:
-                    raise
-
-            if hasattr(fold_estimator, "predict_proba"):
-                y_val_proba = fold_estimator.predict_proba(X_fold_val)[:, 1]
-                y_train_proba = fold_estimator.predict_proba(X_fold_train)[:, 1]
+        try:
+            cv_result = cross_validate(
+                estimator,
+                self.X_train,
+                self.y_train,
+                cv=cv,
+                scoring={"roc_auc": "roc_auc", "f1": "f1"},
+                return_train_score=True,
+                n_jobs=-1,
+                error_score="raise",
+            )
+        except ValueError as exc:
+            if self.resampling_method != "none" and self._is_sampling_ratio_error(exc):
+                logger.warning(
+                    "%s falló en algunos folds con la estrategia configurada. "
+                    "Reintentando CV con sampling_strategy='auto'.",
+                    self.resampling_method,
+                )
+                auto_resampler = self._build_resampler(self.y_train, force_auto_strategy=True)
+                assert auto_resampler is not None
+                estimator = ImbPipeline(
+                    steps=[
+                        ("resampler", auto_resampler),
+                        ("model", model),
+                    ]
+                )
+                cv_result = cross_validate(
+                    estimator,
+                    self.X_train,
+                    self.y_train,
+                    cv=cv,
+                    scoring={"roc_auc": "roc_auc", "f1": "f1"},
+                    return_train_score=True,
+                    n_jobs=-1,
+                    error_score="raise",
+                )
             else:
-                y_val_proba = fold_estimator.predict(X_fold_val)
-                y_train_proba = fold_estimator.predict(X_fold_train)
+                raise
 
-            y_val_pred = fold_estimator.predict(X_fold_val)
-
-            cv_auc_scores.append(float(roc_auc_score(y_fold_val, y_val_proba)))
-            cv_f1_scores.append(float(f1_score(y_fold_val, y_val_pred, zero_division=0)))
-            train_auc_scores.append(float(roc_auc_score(y_fold_train, y_train_proba)))
-
-            running_cv_result = {
-                "test_roc_auc": np.array(cv_auc_scores, dtype=float),
-                "test_f1": np.array(cv_f1_scores, dtype=float),
-                "train_roc_auc": np.array(train_auc_scores, dtype=float),
-            }
-            running_score, _ = self._cv_objective_score(running_cv_result)
-
-            # Report by fold so PatientPruner can wait for sustained lack of improvement.
-            trial.report(running_score, step=fold_idx)
-            if trial.should_prune():
-                raise optuna.TrialPruned()
-
-        cv_result = {
-            "test_roc_auc": np.array(cv_auc_scores, dtype=float),
-            "test_f1": np.array(cv_f1_scores, dtype=float),
-            "train_roc_auc": np.array(train_auc_scores, dtype=float),
-        }
         score, diagnostics = self._cv_objective_score(cv_result)
         trial.set_user_attr("cv_auc", diagnostics["cv_auc"])
         trial.set_user_attr("cv_f1", diagnostics["cv_f1"])
         trial.set_user_attr("train_auc", diagnostics["train_auc"])
         trial.set_user_attr("gap_auc", diagnostics["gap_auc"])
 
+        # Enable pruning using the composite score as intermediate signal.
+        trial.report(score, step=0)
+        if trial.should_prune():
+            raise optuna.TrialPruned()
+
         return score
 
     def optimize_hyperparameters(self) -> None:
         logger.info("Starting optimization for %s", self.model_full_name)
         logger.info("Trials: %s | CV folds: %s", self.n_trials, self.cv_folds)
-        if self.use_smote:
+        if self.resampling_method == "smote":
             logger.info("SMOTE habilitado con sampling_strategy=%.3f", self.smote_sampling_strategy)
+        elif self.resampling_method == "undersample":
+            logger.info(
+                "Undersampling habilitado con sampling_strategy=%.3f",
+                self.undersample_sampling_strategy,
+            )
 
         sampler = TPESampler(seed=self.RANDOM_STATE)
-        startup_trials = self.pruner_startup_trials
-        if startup_trials is None:
-            startup_trials = max(8, self.n_trials // 6)
-
-        base_pruner = MedianPruner(
-            n_startup_trials=startup_trials,
-            n_warmup_steps=self.pruner_warmup_steps,
-        )
-        if PatientPruner is not None:
-            pruner = PatientPruner(
-                wrapped_pruner=base_pruner,
-                patience=self.pruner_patience_steps,
-                min_delta=self.pruner_min_delta,
-            )
-            logger.info(
-                "Pruner configurado: MedianPruner + PatientPruner "
-                "(startup_trials=%s, warmup_steps=%s, patience_steps=%s, min_delta=%.6f)",
-                startup_trials,
-                self.pruner_warmup_steps,
-                self.pruner_patience_steps,
-                self.pruner_min_delta,
-            )
-        else:
-            pruner = base_pruner
-            logger.warning(
-                "PatientPruner no disponible en esta versión de Optuna. "
-                "Se usará solo MedianPruner (startup_trials=%s, warmup_steps=%s).",
-                startup_trials,
-                self.pruner_warmup_steps,
-            )
+        pruner = MedianPruner(n_startup_trials=max(8, self.n_trials // 6), n_warmup_steps=0)
 
         self.study = optuna.create_study(
             direction="maximize",
@@ -919,28 +938,20 @@ def parse_args() -> argparse.Namespace:
         help="SMOTE sampling strategy (0,1]; 1.0 balances minority to majority",
     )
     parser.add_argument(
-        "--pruner_startup_trials",
-        type=int,
-        default=None,
-        help="Trials iniciales sin poda (default: max(8, trials/6))",
+        "--resampling_method",
+        type=str,
+        default="none",
+        choices=["none", "smote", "undersample"],
+        help=(
+            "Resampling method for class imbalance: none, smote, undersample. "
+            "--use_smote mantiene compatibilidad y tiene prioridad si se activa."
+        ),
     )
     parser.add_argument(
-        "--pruner_warmup_steps",
-        type=int,
-        default=1,
-        help="Pasos iniciales por trial sin poda (en este script: folds de CV)",
-    )
-    parser.add_argument(
-        "--pruner_patience_steps",
-        type=int,
-        default=2,
-        help="Paciencia del PatientPruner en pasos (folds) sin mejora",
-    )
-    parser.add_argument(
-        "--pruner_min_delta",
+        "--undersample_sampling_strategy",
         type=float,
-        default=1e-4,
-        help="Mejora mínima para resetear paciencia del pruner",
+        default=1.0,
+        help="Undersampling ratio (0,1]; 1.0 balances minority to majority by cutting majority class",
     )
     return parser.parse_args()
 
@@ -967,14 +978,8 @@ def main() -> None:
         raise ValueError("--uncertainty_quantile must be in [0.0, 1.0).")
     if not 0.0 < args.smote_sampling_strategy <= 1.0:
         raise ValueError("--smote_sampling_strategy must be in (0.0, 1.0].")
-    if args.pruner_startup_trials is not None and args.pruner_startup_trials < 0:
-        raise ValueError("--pruner_startup_trials must be >= 0.")
-    if args.pruner_warmup_steps < 0:
-        raise ValueError("--pruner_warmup_steps must be >= 0.")
-    if args.pruner_patience_steps < 0:
-        raise ValueError("--pruner_patience_steps must be >= 0.")
-    if args.pruner_min_delta < 0.0:
-        raise ValueError("--pruner_min_delta must be >= 0.0.")
+    if not 0.0 < args.undersample_sampling_strategy <= 1.0:
+        raise ValueError("--undersample_sampling_strategy must be in (0.0, 1.0].")
 
     trainer = OptimizedModelTrainer(
         input_dir=args.input_dir,
@@ -987,10 +992,8 @@ def main() -> None:
         uncertainty_quantile=args.uncertainty_quantile,
         use_smote=args.use_smote,
         smote_sampling_strategy=args.smote_sampling_strategy,
-        pruner_startup_trials=args.pruner_startup_trials,
-        pruner_warmup_steps=args.pruner_warmup_steps,
-        pruner_patience_steps=args.pruner_patience_steps,
-        pruner_min_delta=args.pruner_min_delta,
+        resampling_method=args.resampling_method,
+        undersample_sampling_strategy=args.undersample_sampling_strategy,
     )
     trainer.run_pipeline()
 
