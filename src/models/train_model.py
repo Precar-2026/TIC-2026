@@ -35,6 +35,7 @@ from imblearn.pipeline import Pipeline as ImbPipeline
 from lightgbm import LGBMClassifier
 from optuna.pruners import MedianPruner
 from optuna.samplers import TPESampler
+from sklearn.base import clone
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
@@ -45,8 +46,13 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
-from sklearn.model_selection import StratifiedKFold, cross_validate
+from sklearn.model_selection import StratifiedKFold
 from xgboost import XGBClassifier
+
+try:
+    from optuna.pruners import PatientPruner
+except ImportError:
+    PatientPruner = None
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -132,6 +138,10 @@ class OptimizedModelTrainer:
         uncertainty_quantile: float = 0.10,
         use_smote: bool = False,
         smote_sampling_strategy: float = 1.0,
+        pruner_startup_trials: int | None = None,
+        pruner_warmup_steps: int = 1,
+        pruner_patience_steps: int = 2,
+        pruner_min_delta: float = 1e-4,
     ) -> None:
         self.input_dir = input_dir
         self.model_name = model_name.upper()
@@ -143,6 +153,10 @@ class OptimizedModelTrainer:
         self.uncertainty_quantile = uncertainty_quantile
         self.use_smote = use_smote
         self.smote_sampling_strategy = smote_sampling_strategy
+        self.pruner_startup_trials = pruner_startup_trials
+        self.pruner_warmup_steps = pruner_warmup_steps
+        self.pruner_patience_steps = pruner_patience_steps
+        self.pruner_min_delta = pruner_min_delta
 
         if self.model_name not in self.MODEL_NAMES:
             raise ValueError(f"Unsupported model '{self.model_name}'.")
@@ -419,61 +433,81 @@ class OptimizedModelTrainer:
                 ]
             )
 
-        try:
-            cv_result = cross_validate(
-                estimator,
-                self.X_train,
-                self.y_train,
-                cv=cv,
-                scoring={"roc_auc": "roc_auc", "f1": "f1"},
-                return_train_score=True,
-                n_jobs=-1,
-                error_score="raise",
-            )
-        except ValueError as exc:
-            msg = str(exc).lower()
-            ratio_error = "required to remove samples from the minority class" in msg
-            if self.use_smote and ratio_error:
-                logger.warning(
-                    "SMOTE falló en algunos folds con sampling_strategy=%.3f. "
-                    "Reintentando CV con sampling_strategy='auto'.",
-                    self.smote_sampling_strategy,
-                )
-                estimator = ImbPipeline(
-                    steps=[
-                        (
-                            "smote",
-                            SMOTE(
-                                sampling_strategy="auto",
-                                random_state=self.RANDOM_STATE,
-                            ),
-                        ),
-                        ("model", model),
-                    ]
-                )
-                cv_result = cross_validate(
-                    estimator,
-                    self.X_train,
-                    self.y_train,
-                    cv=cv,
-                    scoring={"roc_auc": "roc_auc", "f1": "f1"},
-                    return_train_score=True,
-                    n_jobs=-1,
-                    error_score="raise",
-                )
-            else:
-                raise
+        cv_auc_scores: list[float] = []
+        cv_f1_scores: list[float] = []
+        train_auc_scores: list[float] = []
 
+        for fold_idx, (train_idx, val_idx) in enumerate(cv.split(self.X_train, self.y_train), start=1):
+            X_fold_train = self.X_train.iloc[train_idx]
+            y_fold_train = self.y_train[train_idx]
+            X_fold_val = self.X_train.iloc[val_idx]
+            y_fold_val = self.y_train[val_idx]
+
+            fold_estimator = clone(estimator)
+
+            try:
+                fold_estimator.fit(X_fold_train, y_fold_train)
+            except ValueError as exc:
+                msg = str(exc).lower()
+                ratio_error = "required to remove samples from the minority class" in msg
+                if self.use_smote and ratio_error:
+                    logger.warning(
+                        "SMOTE falló en fold %s con sampling_strategy=%.3f. "
+                        "Reintentando fold con sampling_strategy='auto'.",
+                        fold_idx,
+                        self.smote_sampling_strategy,
+                    )
+                    fold_estimator = ImbPipeline(
+                        steps=[
+                            (
+                                "smote",
+                                SMOTE(
+                                    sampling_strategy="auto",
+                                    random_state=self.RANDOM_STATE,
+                                ),
+                            ),
+                            ("model", self.create_model(params)),
+                        ]
+                    )
+                    fold_estimator.fit(X_fold_train, y_fold_train)
+                else:
+                    raise
+
+            if hasattr(fold_estimator, "predict_proba"):
+                y_val_proba = fold_estimator.predict_proba(X_fold_val)[:, 1]
+                y_train_proba = fold_estimator.predict_proba(X_fold_train)[:, 1]
+            else:
+                y_val_proba = fold_estimator.predict(X_fold_val)
+                y_train_proba = fold_estimator.predict(X_fold_train)
+
+            y_val_pred = fold_estimator.predict(X_fold_val)
+
+            cv_auc_scores.append(float(roc_auc_score(y_fold_val, y_val_proba)))
+            cv_f1_scores.append(float(f1_score(y_fold_val, y_val_pred, zero_division=0)))
+            train_auc_scores.append(float(roc_auc_score(y_fold_train, y_train_proba)))
+
+            running_cv_result = {
+                "test_roc_auc": np.array(cv_auc_scores, dtype=float),
+                "test_f1": np.array(cv_f1_scores, dtype=float),
+                "train_roc_auc": np.array(train_auc_scores, dtype=float),
+            }
+            running_score, _ = self._cv_objective_score(running_cv_result)
+
+            # Report by fold so PatientPruner can wait for sustained lack of improvement.
+            trial.report(running_score, step=fold_idx)
+            if trial.should_prune():
+                raise optuna.TrialPruned()
+
+        cv_result = {
+            "test_roc_auc": np.array(cv_auc_scores, dtype=float),
+            "test_f1": np.array(cv_f1_scores, dtype=float),
+            "train_roc_auc": np.array(train_auc_scores, dtype=float),
+        }
         score, diagnostics = self._cv_objective_score(cv_result)
         trial.set_user_attr("cv_auc", diagnostics["cv_auc"])
         trial.set_user_attr("cv_f1", diagnostics["cv_f1"])
         trial.set_user_attr("train_auc", diagnostics["train_auc"])
         trial.set_user_attr("gap_auc", diagnostics["gap_auc"])
-
-        # Enable pruning using the composite score as intermediate signal.
-        trial.report(score, step=0)
-        if trial.should_prune():
-            raise optuna.TrialPruned()
 
         return score
 
@@ -484,7 +518,36 @@ class OptimizedModelTrainer:
             logger.info("SMOTE habilitado con sampling_strategy=%.3f", self.smote_sampling_strategy)
 
         sampler = TPESampler(seed=self.RANDOM_STATE)
-        pruner = MedianPruner(n_startup_trials=max(8, self.n_trials // 6), n_warmup_steps=0)
+        startup_trials = self.pruner_startup_trials
+        if startup_trials is None:
+            startup_trials = max(8, self.n_trials // 6)
+
+        base_pruner = MedianPruner(
+            n_startup_trials=startup_trials,
+            n_warmup_steps=self.pruner_warmup_steps,
+        )
+        if PatientPruner is not None:
+            pruner = PatientPruner(
+                wrapped_pruner=base_pruner,
+                patience=self.pruner_patience_steps,
+                min_delta=self.pruner_min_delta,
+            )
+            logger.info(
+                "Pruner configurado: MedianPruner + PatientPruner "
+                "(startup_trials=%s, warmup_steps=%s, patience_steps=%s, min_delta=%.6f)",
+                startup_trials,
+                self.pruner_warmup_steps,
+                self.pruner_patience_steps,
+                self.pruner_min_delta,
+            )
+        else:
+            pruner = base_pruner
+            logger.warning(
+                "PatientPruner no disponible en esta versión de Optuna. "
+                "Se usará solo MedianPruner (startup_trials=%s, warmup_steps=%s).",
+                startup_trials,
+                self.pruner_warmup_steps,
+            )
 
         self.study = optuna.create_study(
             direction="maximize",
@@ -855,6 +918,30 @@ def parse_args() -> argparse.Namespace:
         default=1.0,
         help="SMOTE sampling strategy (0,1]; 1.0 balances minority to majority",
     )
+    parser.add_argument(
+        "--pruner_startup_trials",
+        type=int,
+        default=None,
+        help="Trials iniciales sin poda (default: max(8, trials/6))",
+    )
+    parser.add_argument(
+        "--pruner_warmup_steps",
+        type=int,
+        default=1,
+        help="Pasos iniciales por trial sin poda (en este script: folds de CV)",
+    )
+    parser.add_argument(
+        "--pruner_patience_steps",
+        type=int,
+        default=2,
+        help="Paciencia del PatientPruner en pasos (folds) sin mejora",
+    )
+    parser.add_argument(
+        "--pruner_min_delta",
+        type=float,
+        default=1e-4,
+        help="Mejora mínima para resetear paciencia del pruner",
+    )
     return parser.parse_args()
 
 
@@ -880,6 +967,14 @@ def main() -> None:
         raise ValueError("--uncertainty_quantile must be in [0.0, 1.0).")
     if not 0.0 < args.smote_sampling_strategy <= 1.0:
         raise ValueError("--smote_sampling_strategy must be in (0.0, 1.0].")
+    if args.pruner_startup_trials is not None and args.pruner_startup_trials < 0:
+        raise ValueError("--pruner_startup_trials must be >= 0.")
+    if args.pruner_warmup_steps < 0:
+        raise ValueError("--pruner_warmup_steps must be >= 0.")
+    if args.pruner_patience_steps < 0:
+        raise ValueError("--pruner_patience_steps must be >= 0.")
+    if args.pruner_min_delta < 0.0:
+        raise ValueError("--pruner_min_delta must be >= 0.0.")
 
     trainer = OptimizedModelTrainer(
         input_dir=args.input_dir,
@@ -892,6 +987,10 @@ def main() -> None:
         uncertainty_quantile=args.uncertainty_quantile,
         use_smote=args.use_smote,
         smote_sampling_strategy=args.smote_sampling_strategy,
+        pruner_startup_trials=args.pruner_startup_trials,
+        pruner_warmup_steps=args.pruner_warmup_steps,
+        pruner_patience_steps=args.pruner_patience_steps,
+        pruner_min_delta=args.pruner_min_delta,
     )
     trainer.run_pipeline()
 
