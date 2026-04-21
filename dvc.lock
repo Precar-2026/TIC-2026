@@ -23,7 +23,7 @@ stages:
     cmd: python src/features/build_features.py --input 
       data/processed/cardio_clean.csv --output_dir data/processed/model_inputs 
       --scaler_path models/scaler.joblib --scaler_type robust --drop_features 
-      edad_squared,imc_squared,log_ap_hi,col_gluc_ratio,imc_categoria,presion_imc_interaction,pressure_ratio
+      edad_squared,imc_squared,log_ap_hi,col_gluc_ratio
     deps:
     - path: data/processed/cardio_clean.csv
       hash: md5
@@ -36,22 +36,23 @@ stages:
     outs:
     - path: data/processed/model_inputs
       hash: md5
-      md5: fe1225626e0a1f28a3e0fc5639f09274.dir
-      size: 12983809
+      md5: e3eb9571d0504f7676501450864a9d50.dir
+      size: 15493972
       nfiles: 6
     - path: models/scaler.joblib
       hash: md5
-      md5: e9eed5c39050d4ad345d83adf15ec594
-      size: 1359
+      md5: af6b07c22eeca95ae39f02565849a387
+      size: 1463
   train_random_forest:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model RF --models_dir models --trials 10 
-      --use_smote true --smote_sampling_strategy 1.0 --reset_experiment
+      data/processed/model_inputs --model RF --models_dir models --cv_folds 5 
+      --trials 50 --use_smote true --smote_sampling_strategy 1.0 
+      --reset_experiment
     deps:
     - path: data/processed/model_inputs
       hash: md5
-      md5: fe1225626e0a1f28a3e0fc5639f09274.dir
-      size: 12983809
+      md5: e3eb9571d0504f7676501450864a9d50.dir
+      size: 15493972
       nfiles: 6
     - path: src/models/train_model.py
       hash: md5
@@ -60,22 +61,22 @@ stages:
     outs:
     - path: models/best_model_RF.joblib
       hash: md5
-      md5: 654bf348a0d99fafd788abe0171f8fee
-      size: 4235705
+      md5: d5c0cc15853386d65e946fc936f97c95
+      size: 8570793
   train_logistic_regression:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model LR --models_dir models --trials 10 
-      --use_smote true --smote_sampling_strategy 1.0
+      data/processed/model_inputs --model LR --models_dir models --cv_folds 5 
+      --trials 50 --use_smote true --smote_sampling_strategy 1.0
     deps:
     - path: data/processed/model_inputs
       hash: md5
-      md5: fe1225626e0a1f28a3e0fc5639f09274.dir
-      size: 12983809
+      md5: e3eb9571d0504f7676501450864a9d50.dir
+      size: 15493972
       nfiles: 6
     - path: models/best_model_RF.joblib
       hash: md5
-      md5: 654bf348a0d99fafd788abe0171f8fee
-      size: 4235705
+      md5: d5c0cc15853386d65e946fc936f97c95
+      size: 8570793
     - path: src/models/train_model.py
       hash: md5
       md5: 6dc11b60e8f8d793c92c11f0607e0ec5
@@ -83,22 +84,22 @@ stages:
     outs:
     - path: models/best_model_LR.joblib
       hash: md5
-      md5: 25ea35d4f76eba6794e8abc9cc7f98d2
-      size: 1551
+      md5: e67a8bb5d00c72f3e15524f6ebcd33a1
+      size: 1631
   train_lightgbm:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model LGBM --models_dir models --trials 10 
-      --use_smote true --smote_sampling_strategy 1.0
+      data/processed/model_inputs --model LGBM --models_dir models --cv_folds 5 
+      --trials 50 --use_smote true --smote_sampling_strategy 1.0
     deps:
     - path: data/processed/model_inputs
       hash: md5
-      md5: fe1225626e0a1f28a3e0fc5639f09274.dir
-      size: 12983809
+      md5: e3eb9571d0504f7676501450864a9d50.dir
+      size: 15493972
       nfiles: 6
     - path: models/best_model_XGB.joblib
       hash: md5
-      md5: 2e3e5160e57a50272344f27a11419412
-      size: 1967791
+      md5: ac40af934c7ec9af2deba26388fbffe8
+      size: 2006291
     - path: src/models/train_model.py
       hash: md5
       md5: 6dc11b60e8f8d793c92c11f0607e0ec5
@@ -106,22 +107,22 @@ stages:
     outs:
     - path: models/best_model_LGBM.joblib
       hash: md5
-      md5: 8020fcc6e0cf72c54beba5a37395ea28
-      size: 4026484
+      md5: 6db18f7a7a53363d48af566ebc550c4d
+      size: 3157156
   train_xgboost:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model XGB --models_dir models --trials 10 
-      --use_smote true --smote_sampling_strategy 1.0
+      data/processed/model_inputs --model XGB --models_dir models --cv_folds 5 
+      --trials 50 --use_smote true --smote_sampling_strategy 1.0
     deps:
     - path: data/processed/model_inputs
       hash: md5
-      md5: fe1225626e0a1f28a3e0fc5639f09274.dir
-      size: 12983809
+      md5: e3eb9571d0504f7676501450864a9d50.dir
+      size: 15493972
       nfiles: 6
     - path: models/best_model_LR.joblib
       hash: md5
-      md5: 25ea35d4f76eba6794e8abc9cc7f98d2
-      size: 1551
+      md5: e67a8bb5d00c72f3e15524f6ebcd33a1
+      size: 1631
     - path: src/models/train_model.py
       hash: md5
       md5: 6dc11b60e8f8d793c92c11f0607e0ec5
@@ -129,5 +130,5 @@ stages:
     outs:
     - path: models/best_model_XGB.joblib
       hash: md5
-      md5: 2e3e5160e57a50272344f27a11419412
-      size: 1967791
+      md5: ac40af934c7ec9af2deba26388fbffe8
+      size: 2006291
