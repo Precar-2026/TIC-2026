@@ -23,7 +23,7 @@ stages:
     cmd: python src/features/build_features.py --input 
       data/processed/cardio_clean.csv --output_dir data/processed/model_inputs 
       --scaler_path models/scaler.joblib --scaler_type robust --drop_features 
-      edad_squared,imc_squared,log_ap_hi,col_gluc_ratio
+      log_ap_hi,pressure_ratio,col_gluc_ratio
     deps:
     - path: data/processed/cardio_clean.csv
       hash: md5
@@ -36,23 +36,23 @@ stages:
     outs:
     - path: data/processed/model_inputs
       hash: md5
-      md5: e3eb9571d0504f7676501450864a9d50.dir
-      size: 15493972
+      md5: e241962c15af06e761920c898a7f49fd.dir
+      size: 17346365
       nfiles: 6
     - path: models/scaler.joblib
       hash: md5
-      md5: af6b07c22eeca95ae39f02565849a387
-      size: 1463
+      md5: 676a9eadd033be9f0c120738cf4f82c2
+      size: 1487
   train_random_forest:
     cmd: python src/models/train_model.py --input_dir 
       data/processed/model_inputs --model RF --models_dir models --cv_folds 5 
-      --trials 10 --resampling_method undersample 
-      --undersample_sampling_strategy 1.0 --reset_experiment
+      --trials 10 --resampling_method smote --undersample_sampling_strategy 1.0 
+      --reset_experiment
     deps:
     - path: data/processed/model_inputs
       hash: md5
-      md5: e3eb9571d0504f7676501450864a9d50.dir
-      size: 15493972
+      md5: e241962c15af06e761920c898a7f49fd.dir
+      size: 17346365
       nfiles: 6
     - path: src/models/train_model.py
       hash: md5
@@ -61,23 +61,22 @@ stages:
     outs:
     - path: models/best_model_RF.joblib
       hash: md5
-      md5: 63fb1c49ae0503ad6d4e21aed09cfa1a
-      size: 4225369
+      md5: cab7c2c31b1d5589bd22a6f49e1ba35d
+      size: 4224409
   train_logistic_regression:
     cmd: python src/models/train_model.py --input_dir 
       data/processed/model_inputs --model LR --models_dir models --cv_folds 5 
-      --trials 10 --resampling_method undersample 
-      --undersample_sampling_strategy 1.0
+      --trials 10 --resampling_method smote --undersample_sampling_strategy 1.0
     deps:
     - path: data/processed/model_inputs
       hash: md5
-      md5: e3eb9571d0504f7676501450864a9d50.dir
-      size: 15493972
+      md5: e241962c15af06e761920c898a7f49fd.dir
+      size: 17346365
       nfiles: 6
     - path: models/best_model_RF.joblib
       hash: md5
-      md5: 63fb1c49ae0503ad6d4e21aed09cfa1a
-      size: 4225369
+      md5: cab7c2c31b1d5589bd22a6f49e1ba35d
+      size: 4224409
     - path: src/models/train_model.py
       hash: md5
       md5: 56e7613d7dae9d649199f94829cc447c
@@ -85,23 +84,22 @@ stages:
     outs:
     - path: models/best_model_LR.joblib
       hash: md5
-      md5: d0311378dec02e781fc39709a723159b
-      size: 1631
+      md5: a69c2f994914c4ed04b7c6b3ad97dc1c
+      size: 1675
   train_lightgbm:
     cmd: python src/models/train_model.py --input_dir 
       data/processed/model_inputs --model LGBM --models_dir models --cv_folds 5 
-      --trials 10 --resampling_method undersample 
-      --undersample_sampling_strategy 1.0
+      --trials 10 --resampling_method smote --undersample_sampling_strategy 1.0
     deps:
     - path: data/processed/model_inputs
       hash: md5
-      md5: e3eb9571d0504f7676501450864a9d50.dir
-      size: 15493972
+      md5: e241962c15af06e761920c898a7f49fd.dir
+      size: 17346365
       nfiles: 6
     - path: models/best_model_XGB.joblib
       hash: md5
-      md5: c5a09e1c1a73ed40d4830f00ab4ee618
-      size: 1991319
+      md5: 4ca6f0f2b49dc4d1c0e12c9635bceaf7
+      size: 2006056
     - path: src/models/train_model.py
       hash: md5
       md5: 56e7613d7dae9d649199f94829cc447c
@@ -109,23 +107,22 @@ stages:
     outs:
     - path: models/best_model_LGBM.joblib
       hash: md5
-      md5: 0f300c6476d21de7a0511d2a69b107f7
-      size: 4039844
+      md5: a5c559615bca65b6416d92325bf2e721
+      size: 4031060
   train_xgboost:
     cmd: python src/models/train_model.py --input_dir 
       data/processed/model_inputs --model XGB --models_dir models --cv_folds 5 
-      --trials 10 --resampling_method undersample 
-      --undersample_sampling_strategy 1.0
+      --trials 10 --resampling_method smote --undersample_sampling_strategy 1.0
     deps:
     - path: data/processed/model_inputs
       hash: md5
-      md5: e3eb9571d0504f7676501450864a9d50.dir
-      size: 15493972
+      md5: e241962c15af06e761920c898a7f49fd.dir
+      size: 17346365
       nfiles: 6
     - path: models/best_model_LR.joblib
       hash: md5
-      md5: d0311378dec02e781fc39709a723159b
-      size: 1631
+      md5: a69c2f994914c4ed04b7c6b3ad97dc1c
+      size: 1675
     - path: src/models/train_model.py
       hash: md5
       md5: 56e7613d7dae9d649199f94829cc447c
@@ -133,5 +130,5 @@ stages:
     outs:
     - path: models/best_model_XGB.joblib
       hash: md5
-      md5: c5a09e1c1a73ed40d4830f00ab4ee618
-      size: 1991319
+      md5: 4ca6f0f2b49dc4d1c0e12c9635bceaf7
+      size: 2006056
