@@ -17,37 +17,45 @@ stages:
     outs:
     - data/processed/model_inputs
     - models/scaler.joblib
-  train_random_forest:
-    cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model RF --models_dir models --cv_folds 5 --trials 100 --resampling_method smote --undersample_sampling_strategy 1.0 --reset_experiment
+  seleccion_caracteristicas:
+    cmd: python src/features/select_features.py --input_dir data/processed/model_inputs 
+      --output_dir data/processed/model_inputs_rfecv
     deps:
     - data/processed/model_inputs
+    - src/features/select_features.py
+    outs:
+    - data/processed/model_inputs_rfecv
+  train_random_forest:
+    cmd: python src/models/train_model.py --input_dir 
+      data/processed/model_inputs_rfecv --model RF --models_dir models --cv_folds 5 --trials 10 --resampling_method smote --undersample_sampling_strategy 1.0 --reset_experiment
+    deps:
+    - data/processed/model_inputs_rfecv
     - src/models/train_model.py
     outs:
     - models/best_model_RF.joblib
   train_logistic_regression:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model LR --models_dir models --cv_folds 5 --trials 100 --resampling_method smote --undersample_sampling_strategy 1.0
+      data/processed/model_inputs_rfecv --model LR --models_dir models --cv_folds 5 --trials 10 --resampling_method smote --undersample_sampling_strategy 1.0
     deps:
-    - data/processed/model_inputs
+    - data/processed/model_inputs_rfecv
     - src/models/train_model.py
     - models/best_model_RF.joblib
     outs:
     - models/best_model_LR.joblib
   train_xgboost:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model XGB --models_dir models --cv_folds 5 --trials 100 --resampling_method smote --undersample_sampling_strategy 1.0
+      data/processed/model_inputs_rfecv --model XGB --models_dir models --cv_folds 5 --trials 10 --resampling_method smote --undersample_sampling_strategy 1.0
     deps:
-    - data/processed/model_inputs
+    - data/processed/model_inputs_rfecv
     - src/models/train_model.py
     - models/best_model_LR.joblib
     outs:
     - models/best_model_XGB.joblib
   train_lightgbm:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs --model LGBM --models_dir models --cv_folds 5 --trials 100 --resampling_method smote --undersample_sampling_strategy 1.0
+      data/processed/model_inputs_rfecv --model LGBM --models_dir models --cv_folds 5 --trials 10 --resampling_method smote --undersample_sampling_strategy 1.0
     deps:
-    - data/processed/model_inputs
+    - data/processed/model_inputs_rfecv
     - src/models/train_model.py
     - models/best_model_XGB.joblib
     outs:
