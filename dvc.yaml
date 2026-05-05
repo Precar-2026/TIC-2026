@@ -27,7 +27,7 @@ stages:
     - data/processed/model_inputs_rfecv
   train_random_forest:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs_rfecv --model RF --models_dir models --cv_folds 5 --trials 10 --resampling_method smote --undersample_sampling_strategy 1.0 --reset_experiment
+      data/processed/model_inputs_rfecv --model RF --models_dir models --cv_folds 5 --trials 50 --resampling_method smote --undersample_sampling_strategy 1.0 --reset_experiment
     deps:
     - data/processed/model_inputs_rfecv
     - src/models/train_model.py
@@ -35,7 +35,7 @@ stages:
     - models/best_model_RF.joblib
   train_logistic_regression:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs_rfecv --model LR --models_dir models --cv_folds 5 --trials 10 --resampling_method smote --undersample_sampling_strategy 1.0
+      data/processed/model_inputs_rfecv --model LR --models_dir models --cv_folds 5 --trials 50 --resampling_method smote --undersample_sampling_strategy 1.0
     deps:
     - data/processed/model_inputs_rfecv
     - src/models/train_model.py
@@ -44,7 +44,7 @@ stages:
     - models/best_model_LR.joblib
   train_xgboost:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs_rfecv --model XGB --models_dir models --cv_folds 5 --trials 10 --resampling_method smote --undersample_sampling_strategy 1.0
+      data/processed/model_inputs_rfecv --model XGB --models_dir models --cv_folds 5 --trials 50 --resampling_method smote --undersample_sampling_strategy 1.0
     deps:
     - data/processed/model_inputs_rfecv
     - src/models/train_model.py
@@ -53,7 +53,7 @@ stages:
     - models/best_model_XGB.joblib
   train_lightgbm:
     cmd: python src/models/train_model.py --input_dir 
-      data/processed/model_inputs_rfecv --model LGBM --models_dir models --cv_folds 5 --trials 10 --resampling_method smote --undersample_sampling_strategy 1.0
+      data/processed/model_inputs_rfecv --model LGBM --models_dir models --cv_folds 5 --trials 50 --resampling_method smote --undersample_sampling_strategy 1.0
     deps:
     - data/processed/model_inputs_rfecv
     - src/models/train_model.py

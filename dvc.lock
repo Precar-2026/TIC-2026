@@ -22,8 +22,7 @@ stages:
   ingenieria_caracteristicas:
     cmd: python src/features/build_features.py --input 
       data/processed/cardio_clean.csv --output_dir data/processed/model_inputs 
-      --scaler_path models/scaler.joblib --scaler_type robust --drop_features 
-      log_ap_hi,pressure_ratio,col_gluc_ratio
+      --scaler_path models/scaler.joblib --scaler_type robust
     deps:
     - path: data/processed/cardio_clean.csv
       hash: md5
@@ -36,24 +35,24 @@ stages:
     outs:
     - path: data/processed/model_inputs
       hash: md5
-      md5: e241962c15af06e761920c898a7f49fd.dir
-      size: 17346365
+      md5: ace0a7301a6416cd0de9c7cba5cf2bc9.dir
+      size: 19547586
       nfiles: 6
     - path: models/scaler.joblib
       hash: md5
-      md5: 676a9eadd033be9f0c120738cf4f82c2
-      size: 1487
+      md5: 7bbf67ba76ca928df0329e57ed73f5cb
+      size: 1591
   train_random_forest:
     cmd: python src/models/train_model.py --input_dir 
       data/processed/model_inputs_rfecv --model RF --models_dir models 
-      --cv_folds 5 --trials 10 --resampling_method smote 
+      --cv_folds 5 --trials 50 --resampling_method smote 
       --undersample_sampling_strategy 1.0 --reset_experiment
     deps:
     - path: data/processed/model_inputs_rfecv
       hash: md5
-      md5: 50a33cc50e14f6dc1588583d141d024a.dir
-      size: 14470990
-      nfiles: 8
+      md5: 80d9c2f00cf99cc124a945b1385d1c3f.dir
+      size: 15267789
+      nfiles: 7
     - path: src/models/train_model.py
       hash: md5
       md5: 56e7613d7dae9d649199f94829cc447c
@@ -61,23 +60,23 @@ stages:
     outs:
     - path: models/best_model_RF.joblib
       hash: md5
-      md5: 4c2f4e77cb384f49cb8e3958523742cc
-      size: 4217657
+      md5: 671f72ac9621ada31ef063cfbf2a8b0d
+      size: 7313513
   train_logistic_regression:
     cmd: python src/models/train_model.py --input_dir 
       data/processed/model_inputs_rfecv --model LR --models_dir models 
-      --cv_folds 5 --trials 10 --resampling_method smote 
+      --cv_folds 5 --trials 50 --resampling_method smote 
       --undersample_sampling_strategy 1.0
     deps:
     - path: data/processed/model_inputs_rfecv
       hash: md5
-      md5: 50a33cc50e14f6dc1588583d141d024a.dir
-      size: 14470990
-      nfiles: 8
+      md5: 80d9c2f00cf99cc124a945b1385d1c3f.dir
+      size: 15267789
+      nfiles: 7
     - path: models/best_model_RF.joblib
       hash: md5
-      md5: 4c2f4e77cb384f49cb8e3958523742cc
-      size: 4217657
+      md5: 671f72ac9621ada31ef063cfbf2a8b0d
+      size: 7313513
     - path: src/models/train_model.py
       hash: md5
       md5: 56e7613d7dae9d649199f94829cc447c
@@ -85,23 +84,23 @@ stages:
     outs:
     - path: models/best_model_LR.joblib
       hash: md5
-      md5: 73b779cabf711adc3eb1c624b708e27a
-      size: 1611
+      md5: 73be10fa8ac9dc3a90251424042a2518
+      size: 1615
   train_lightgbm:
     cmd: python src/models/train_model.py --input_dir 
       data/processed/model_inputs_rfecv --model LGBM --models_dir models 
-      --cv_folds 5 --trials 10 --resampling_method smote 
+      --cv_folds 5 --trials 50 --resampling_method smote 
       --undersample_sampling_strategy 1.0
     deps:
     - path: data/processed/model_inputs_rfecv
       hash: md5
-      md5: 50a33cc50e14f6dc1588583d141d024a.dir
-      size: 14470990
-      nfiles: 8
+      md5: 80d9c2f00cf99cc124a945b1385d1c3f.dir
+      size: 15267789
+      nfiles: 7
     - path: models/best_model_XGB.joblib
       hash: md5
-      md5: c6fae3768b2a7e4c8dd4f09071ca15be
-      size: 1991213
+      md5: fbd25ecd28f6722539eacd08168efbf4
+      size: 1984076
     - path: src/models/train_model.py
       hash: md5
       md5: 56e7613d7dae9d649199f94829cc447c
@@ -109,23 +108,23 @@ stages:
     outs:
     - path: models/best_model_LGBM.joblib
       hash: md5
-      md5: 13fa6c8a0c57d674db2f5f9016727935
-      size: 4030628
+      md5: 0ab6e9aca54b963413c9837e07adf9b9
+      size: 3715364
   train_xgboost:
     cmd: python src/models/train_model.py --input_dir 
       data/processed/model_inputs_rfecv --model XGB --models_dir models 
-      --cv_folds 5 --trials 10 --resampling_method smote 
+      --cv_folds 5 --trials 50 --resampling_method smote 
       --undersample_sampling_strategy 1.0
     deps:
     - path: data/processed/model_inputs_rfecv
       hash: md5
-      md5: 50a33cc50e14f6dc1588583d141d024a.dir
-      size: 14470990
-      nfiles: 8
+      md5: 80d9c2f00cf99cc124a945b1385d1c3f.dir
+      size: 15267789
+      nfiles: 7
     - path: models/best_model_LR.joblib
       hash: md5
-      md5: 73b779cabf711adc3eb1c624b708e27a
-      size: 1611
+      md5: 73be10fa8ac9dc3a90251424042a2518
+      size: 1615
     - path: src/models/train_model.py
       hash: md5
       md5: 56e7613d7dae9d649199f94829cc447c
@@ -133,24 +132,24 @@ stages:
     outs:
     - path: models/best_model_XGB.joblib
       hash: md5
-      md5: c6fae3768b2a7e4c8dd4f09071ca15be
-      size: 1991213
+      md5: fbd25ecd28f6722539eacd08168efbf4
+      size: 1984076
   seleccion_caracteristicas:
     cmd: python src/features/select_features.py --input_dir 
       data/processed/model_inputs --output_dir data/processed/model_inputs_rfecv
     deps:
     - path: data/processed/model_inputs
       hash: md5
-      md5: e241962c15af06e761920c898a7f49fd.dir
-      size: 17346365
+      md5: ace0a7301a6416cd0de9c7cba5cf2bc9.dir
+      size: 19547586
       nfiles: 6
     - path: src/features/select_features.py
       hash: md5
-      md5: 241b9c4a33a23a760bb503b24a677808
-      size: 5179
+      md5: 49d3961614f5f7a0005a85dc25852dd8
+      size: 6622
     outs:
     - path: data/processed/model_inputs_rfecv
       hash: md5
-      md5: 50a33cc50e14f6dc1588583d141d024a.dir
-      size: 14470990
-      nfiles: 8
+      md5: 80d9c2f00cf99cc124a945b1385d1c3f.dir
+      size: 15267789
+      nfiles: 7
