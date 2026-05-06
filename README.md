@@ -23,15 +23,14 @@ Dataset base: 70,000 registros de pacientes con variables demograficas, presion 
 
 ---
 
-## Estado Actual (Abril 2026)
+## Estado Actual (Mayo 2026)
 
-- Pipeline DVC activo con entrenamiento secuencial de `RF`, `LR`, `XGB`, `LGBM`.
+- Pipeline DVC activo con limpieza, feature engineering, RFECV y entrenamiento secuencial de `RF`, `LR`, `XGB`, `LGBM`.
 - Comparativa consolidada sobre test en `notebooks/05_comparativa_experimentos_tesis.ipynb`.
-- Se detectan y comparan 18 experimentos (`Experimento1` a `Experimento18`).
+- Se detectan y comparan 20 experimentos (`Experimento1` a `Experimento20`).
 - Ultimo corte comparativo (archivo `report/tables/comparativa_experimentos_test.csv`):
-  - Campeon global: `Experimento17 - XGBoost`
-  - `AUC-ROC(test): 0.8059`
-  - `F1(test): 0.7418`
+  - Ganador por `AUC-ROC(test)`: `Experimento17 - XGBoost` (`AUC-ROC: 0.8059`, `F1: 0.7418`)
+  - Ganador por `F1(test)`: `Experimento9 - LightGBM` (`F1: 0.7436`, `AUC-ROC: 0.8044`)
 
 Nota: Estos valores dependen del ultimo conjunto de artefactos locales disponible y pueden cambiar tras nuevas ejecuciones.
 
@@ -92,6 +91,7 @@ Prediccion_Cardiovascular/
 |   |-- processed/
 |       |-- cardio_clean.csv
 |       |-- model_inputs/
+|       |-- model_inputs_rfecv/
 |       |-- __tmp_full_feature_snapshot/
 |
 |-- src/
@@ -99,9 +99,9 @@ Prediccion_Cardiovascular/
 |   |   |-- make_dataset.py
 |   |-- features/
 |   |   |-- build_features.py
+|   |   |-- select_features.py
 |   |-- models/
 |       |-- train_model.py
-|       |-- train3_model.py
 |
 |-- models/
 |   |-- best_model_LR.joblib
@@ -155,7 +155,7 @@ Funciones clave:
   - `ap_lo`: min/max
   - Consistencia de presion (`ap_hi > ap_lo`, o `>=` con flag)
 - Variables derivadas iniciales:
-  - `edad_anos`
+  - `edad_años`
   - `imc`
 
 Parametros utiles:
@@ -186,7 +186,20 @@ Importante:
 - Se puede usar subpoblacion hipertensa con `--use_hypertensive_only`.
 - Escalado configurable con `--scaler_type {robust,standard,none}`.
 
-### 3. Modelado y Optimizacion
+### 3. Seleccion de Caracteristicas (RFECV)
+
+Script principal: `src/features/select_features.py`
+
+Detalles clave:
+
+- RFECV con `LightGBM` y `ROC-AUC` como métrica.
+- Usa solo `X_train/y_train` para seleccionar variables y aplica el subset a `X_val/X_test`.
+- Genera:
+  - `data/processed/model_inputs_rfecv/`
+  - `report/figures/rfecv_results.png`
+  - `data/processed/model_inputs_rfecv/selected_features.pkl`
+
+### 4. Modelado y Optimizacion
 
 Script principal del pipeline: `src/models/train_model.py`
 
@@ -221,7 +234,7 @@ Control experimental:
 - `--drop_uncertain_cases`
 - `--uncertainty_quantile`
 
-### 4. Artefactos por Experimento
+### 5. Artefactos por Experimento
 
 Cada `ExperimentoN` guarda:
 
@@ -254,10 +267,11 @@ El `dvc.yaml` actual ejecuta:
 2. Feature engineering (`build_features.py`) con:
    - `--scaler_type robust`
    - `--drop_features log_ap_hi,pressure_ratio,col_gluc_ratio`
-3. Entrenamiento de `RF`, `LR`, `XGB`, `LGBM` con:
-   - `--cv_folds 5`
-   - `--trials 100`
-   - `--resampling_method smote`
+3. Seleccion de caracteristicas (`select_features.py`) y salida a `model_inputs_rfecv`
+4. Entrenamiento de `RF`, `LR`, `XGB`, `LGBM` con:
+  - `--cv_folds 5`
+  - `--trials 50`
+  - `--resampling_method smote`
 
 ### Ejecucion Manual por Etapas
 
@@ -284,15 +298,23 @@ python src/features/build_features.py \
   --drop_features log_ap_hi,pressure_ratio,col_gluc_ratio
 ```
 
-#### 3) Entrenamiento (ejemplo XGBoost)
+#### 3) Seleccion de caracteristicas (RFECV)
+
+```bash
+python src/features/select_features.py \
+  --input_dir data/processed/model_inputs \
+  --output_dir data/processed/model_inputs_rfecv
+```
+
+#### 4) Entrenamiento (ejemplo XGBoost)
 
 ```bash
 python src/models/train_model.py \
-  --input_dir data/processed/model_inputs \
+  --input_dir data/processed/model_inputs_rfecv \
   --model XGB \
   --models_dir models \
   --cv_folds 5 \
-  --trials 100 \
+  --trials 50 \
   --resampling_method smote \
   --smote_sampling_strategy 1.0
 ```
@@ -348,14 +370,45 @@ python src/models/train_model.py \
 
 Segun `report/tables/comparativa_experimentos_test.csv`:
 
-- Modelos evaluados: 72
-- Experimentos cubiertos: 18
-- Modelo campeon global: `Experimento17 - XGBoost`
-- Metricas del campeon:
+- Modelos evaluados: 80
+- Experimentos cubiertos: 20
+- Ganador por `AUC-ROC(test)`: `Experimento17 - XGBoost`
   - `AUC-ROC(test): 0.8059`
   - `F1(test): 0.7418`
   - `MCC(test): 0.4368`
   - `Delta Test-Val (AUC): +0.0044`
+- Ganador por `F1(test)`: `Experimento9 - LightGBM`
+  - `F1(test): 0.7436`
+  - `AUC-ROC(test): 0.8044`
+  - `MCC(test): 0.4496`
+  - `Delta Test-Val (AUC): +0.0036`
+
+### Parametros, argumentos y criterios considerados
+
+**Criterios comunes de optimizacion y evaluacion**
+
+- Optuna con `TPE` y `MedianPruner`.
+- Funcion objetivo compuesta: `0.70 * ROC-AUC + 0.30 * F1 - 0.15 * gap_auc`.
+- CV estratificada (`cv_folds=5`).
+- Ajuste de umbral en validacion y aplicacion directa en test.
+- Resampling con `SMOTE` (`sampling_strategy=1.0`).
+- `drop_uncertain_cases=False`.
+
+**Ganador por AUC-ROC: Experimento17 - XGBoost**
+
+- Argumentos clave: `cv_folds=5`, `trials=10`, `resampling_method=smote`, `smote_sampling_strategy=1.0`, `threshold=0.34`.
+- Mejores hiperparametros:
+  - `n_estimators=1393`, `max_depth=4`, `learning_rate=0.0064319`
+  - `subsample=0.8413`, `colsample_bytree=0.7147`, `min_child_weight=12`
+  - `gamma=3.1005`, `reg_alpha=1.6079`, `reg_lambda=1.6024`
+
+**Ganador por F1: Experimento9 - LightGBM**
+
+- Argumentos clave: `cv_folds=5`, `trials=30`, `smote_sampling_strategy=1.0`, `threshold=0.365`.
+- Mejores hiperparametros:
+  - `n_estimators=1334`, `learning_rate=0.0027697`, `num_leaves=20`, `max_depth=6`
+  - `min_child_samples=69`, `subsample=0.8680`, `colsample_bytree=0.8311`
+  - `reg_alpha=2.0043`, `reg_lambda=0.0003584`
 
 ### Criterios de interpretacion clinica
 
@@ -464,7 +517,7 @@ Dependencias principales (ver `requirements.txt`):
 
 ### Nota sobre MLflow
 
-El flujo DVC principal actual usa `train_model.py`, que prioriza artefactos locales por experimento. El script `src/models/train3_model.py` mantiene una variante con logging explicito en MLflow.
+El flujo DVC principal actual usa `train_model.py` y prioriza artefactos locales por experimento. `mlflow` se mantiene en dependencias para soportar flujos alternativos de tracking si se integran manualmente.
 
 ---
 
@@ -472,13 +525,13 @@ El flujo DVC principal actual usa `train_model.py`, que prioriza artefactos loca
 
 **Autor:** Jhandry Santiago Chimbo Rivera
 **Proyecto:** Trabajo de Tesis - Prediccion de Enfermedades Cardiovasculares  
-**Fecha:** Abril 2026
+**Fecha:** Mayo 2026
 
 Para consultas academicas o tecnicas, contactar a traves de los canales institucionales del autor.
 
 ---
 
-## Referencias
+<!-- ## Referencias
 
 ### Bases cientificas
 
@@ -494,11 +547,11 @@ Para consultas academicas o tecnicas, contactar a traves de los canales instituc
 
 4. Akiba T, et al. (2019). Optuna: A Next-generation Hyperparameter Optimization Framework. KDD.
 5. Chen T, Guestrin C. (2016). XGBoost: A Scalable Tree Boosting System. KDD.
-6. Ke G, et al. (2017). LightGBM: A Highly Efficient Gradient Boosting Decision Tree. NeurIPS.
+6. Ke G, et al. (2017). LightGBM: A Highly Efficient Gradient Boosting Decision Tree. NeurIPS. -->
 
 ### Dataset
 
-7. Cardiovascular Disease Dataset (Kaggle):  
+Cardiovascular Disease Dataset (Kaggle):  
    https://www.kaggle.com/datasets/sulianova/cardiovascular-disease-dataset
 
 ---
@@ -515,5 +568,5 @@ A la comunidad open-source de ciencia de datos y machine learning, y en especial
 
 ---
 
-**Ultima actualizacion:** Abril 2026  
-**Version del documento:** 1.1
+**Ultima actualizacion:** Mayo 2026  
+**Version del documento:** 1.2
