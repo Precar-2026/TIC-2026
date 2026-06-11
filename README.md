@@ -22,17 +22,17 @@ El flujo cubre:
 Dataset base: 70,000 registros de pacientes con variables demograficas, presion arterial, IMC, colesterol, glucosa y habitos de vida.
 
 ---
-
-## Estado Actual (Mayo 2026)
-
-- Pipeline DVC activo con limpieza, feature engineering, RFECV y entrenamiento secuencial de `RF`, `LR`, `XGB`, `LGBM`.
-- Comparativa consolidada sobre test en `notebooks/05_comparativa_experimentos_tesis.ipynb`.
-- Se detectan y comparan 20 experimentos (`Experimento1` a `Experimento20`).
-- Ultimo corte comparativo (archivo `report/tables/comparativa_experimentos_test.csv`):
-  - Ganador por `AUC-ROC(test)`: `Experimento17 - XGBoost` (`AUC-ROC: 0.8059`, `F1: 0.7418`)
-  - Ganador por `F1(test)`: `Experimento9 - LightGBM` (`F1: 0.7436`, `AUC-ROC: 0.8044`)
-
-Nota: Estos valores dependen del ultimo conjunto de artefactos locales disponible y pueden cambiar tras nuevas ejecuciones.
+> [!IMPORTANT]
+> ## Estado Actual (Mayo 2026)
+>
+> - Pipeline DVC activo con limpieza, feature engineering, RFECV y entrenamiento secuencial de `RF`, `LR`, `XGB`, `LGBM`.
+> - Comparativa consolidada sobre test en `notebooks/05_comparativa_experimentos_tesis.ipynb`.
+> - Se detectan y comparan 20 experimentos (`Experimento1` a `Experimento20`).
+> - Ultimo corte comparativo (archivo `report/tables/comparativa_experimentos_test.csv`):
+>   - Ganador por `AUC-ROC(test)`: `Experimento17 - XGBoost` (`AUC-ROC: 0.8059`, `F1: 0.7418`)
+>   - Ganador por `F1(test)`: `Experimento9 - LightGBM` (`F1: 0.7436`, `AUC-ROC: 0.8044`)
+> 
+> Nota: Estos valores dependen del ultimo conjunto de artefactos locales disponible y pueden cambiar tras nuevas ejecuciones.
 
 ---
 
